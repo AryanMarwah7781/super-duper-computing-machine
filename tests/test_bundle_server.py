@@ -62,6 +62,26 @@ def test_caches_images_to_disk(served):
     assert list(cache.rglob("*")), "expected the image to be cached"
 
 
+def test_jpeg_is_not_served_as_png(served):
+    """The manual's images are .jpeg. An earlier version hardcoded image/png
+    for every image, which browsers sniff around but is still wrong."""
+    base, _ = served
+    r = httpx.get(f"{base}/images/OMKK60066.pdf_p100_img0_d23880d0.jpeg")
+    assert r.status_code == 200
+    assert "png" not in r.headers["content-type"]
+
+
+def test_cached_image_keeps_its_content_type(served):
+    """Second fetch is served from disk and must not lose the type."""
+    base, _ = served
+    url = f"{base}/images/OMKK60066.pdf_p101_img0_c361b0ef.jpeg"
+    first = httpx.get(url)
+    second = httpx.get(url)
+    assert second.status_code == 200
+    assert second.headers["content-type"] == first.headers["content-type"]
+    assert "png" not in second.headers["content-type"]
+
+
 def test_missing_image_is_404_not_a_crash(tmp_path):
     root = tmp_path / "dist2"
     root.mkdir()

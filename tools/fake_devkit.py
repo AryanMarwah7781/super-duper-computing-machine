@@ -57,7 +57,10 @@ def make_app(fixtures_dir: Path, ready: bool = True) -> FastAPI:
 
     @app.get("/images/{path:path}")
     def images(path: str) -> Response:
-        return Response(content=_PNG, media_type="image/png")
+        # The real manual images are .jpeg; mirror that so the client's proxy is
+        # exercised with the content type it will actually meet.
+        kind = "image/jpeg" if path.lower().endswith((".jpg", ".jpeg")) else "image/png"
+        return Response(content=_PNG, media_type=kind)
 
     return app
 

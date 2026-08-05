@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import http.server
+import mimetypes
 import socketserver
 import threading
 from pathlib import Path
@@ -16,6 +17,11 @@ from typing import Optional
 import httpx
 
 _IMAGE_PREFIX = "/images/"
+
+
+def _content_type(name: str) -> str:
+    """The manual's images are .jpeg; guess from the name as a fallback."""
+    return mimetypes.guess_type(name)[0] or "application/octet-stream"
 
 
 class _Handler(http.server.SimpleHTTPRequestHandler):
@@ -40,7 +46,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         key = hashlib.sha1(rel.encode("utf-8")).hexdigest()
         cached = self.cache_dir / key
         if cached.is_file():
-            self._send_bytes(cached.read_bytes())
+            self._send_bytes(cached.read_bytes(), _content_type(rel))
             return
         try:
             r = httpx.get(f"{self.devkit_url}/images/{rel}", timeout=10.0)
@@ -50,11 +56,14 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             return
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         cached.write_bytes(r.content)
-        self._send_bytes(r.content)
+        # Trust the devkit's content type when it gave one; the manual's images
+        # are .jpeg, and an earlier version hardcoded image/png for everything.
+        self._send_bytes(r.content,
+                         r.headers.get("content-type") or _content_type(rel))
 
-    def _send_bytes(self, body: bytes) -> None:
+    def _send_bytes(self, body: bytes, content_type: str) -> None:
         self.send_response(200)
-        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

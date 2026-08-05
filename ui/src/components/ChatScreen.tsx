@@ -3,13 +3,13 @@ import { AnswerView } from "./AnswerView"
 import { AskBar } from "./AskBar"
 import { CollaborationMark } from "./CollaborationMark"
 import { HistorySidebar } from "./HistorySidebar"
-import { ChatbotArt } from "./art/TileArt"
+import { FarmingHeroArt } from "./art/TileArt"
 
 /** Shown until the first question — the screen should say what it is for. */
 function EmptyState() {
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-      <ChatbotArt className="h-40 text-primary" />
+      <FarmingHeroArt className="h-48 text-primary" />
       <h1 className="mt-4 text-3xl font-semibold tracking-tight">
         Let's start farming.
       </h1>

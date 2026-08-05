@@ -9,3 +9,5 @@ ui/dist/
 turns.jsonl
 *.egg-info/
 .env
+
+data/profiles.json

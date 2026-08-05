@@ -43,6 +43,22 @@ export type AskResult = {
   stale?: boolean
 }
 
+export type UserDto = {
+  id: string
+  name: string
+  created_at: string
+  last_seen: string
+  turns?: number
+}
+
+export type HistoryEntry = {
+  ts: string
+  query: string
+  kind: string
+  source: string
+  turn: TurnDto | null
+}
+
 type Handler = (data: unknown) => void
 
 declare global {
@@ -77,14 +93,46 @@ function bridge() {
   return window.pywebview?.api
 }
 
-export async function ask(query: string, source = "typed"): Promise<AskResult> {
+export async function ask(
+  query: string,
+  source = "typed",
+  userId = "",
+): Promise<AskResult> {
   const api = bridge()
   if (!api) {
     return { ok: false, turn: null, error: "the Python bridge is not available" }
   }
-  return (await api.ask(query, source)) as AskResult
+  return (await api.ask(query, source, userId)) as AskResult
 }
 
 export async function cancel(): Promise<void> {
   await bridge()?.cancel()
+}
+
+export async function listUsers(): Promise<UserDto[]> {
+  const api = bridge()
+  if (!api) return []
+  const result = (await api.list_users()) as { users: UserDto[] }
+  return result.users ?? []
+}
+
+export async function login(
+  name: string,
+): Promise<{ ok: boolean; user: UserDto | null; error: string | null }> {
+  const api = bridge()
+  if (!api) {
+    return { ok: false, user: null, error: "the Python bridge is not available" }
+  }
+  return (await api.login(name)) as {
+    ok: boolean
+    user: UserDto | null
+    error: string | null
+  }
+}
+
+export async function history(userId: string): Promise<HistoryEntry[]> {
+  const api = bridge()
+  if (!api) return []
+  const result = (await api.history(userId)) as { entries: HistoryEntry[] }
+  return result.entries ?? []
 }

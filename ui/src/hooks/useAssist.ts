@@ -33,11 +33,11 @@ export function useAssist() {
     }
   }, [])
 
-  const ask = useCallback(async (query: string) => {
+  const ask = useCallback(async (query: string, userId = "") => {
     setBusy(true)
     setError(null)
     await bridgeCancel()
-    const result = await bridgeAsk(query)
+    const result = await bridgeAsk(query, "typed", userId)
     if (result.stale) {
       setBusy(false)
       return
@@ -51,5 +51,12 @@ export function useAssist() {
     setBusy(false)
   }, [])
 
-  return { state, detail, turn, error, busy, ask, cancel: bridgeCancel }
+  /** Show an answer we already have — re-opening a past question, or clearing
+   * the pane on sign-out. Never re-asks the devkit. */
+  const showTurn = useCallback((next: TurnDto | null) => {
+    setTurn(next)
+    setError(null)
+  }, [])
+
+  return { state, detail, turn, error, busy, ask, showTurn, cancel: bridgeCancel }
 }

@@ -33,7 +33,18 @@ describe("ask", () => {
     const spy = vi.fn().mockResolvedValue({ ok: true, turn: null, error: null })
     window.pywebview = { api: { ask: spy } }
     await ask("how do i fill the tank")
-    expect(spy).toHaveBeenCalledWith("how do i fill the tank", "typed")
+    expect(spy).toHaveBeenCalledWith("how do i fill the tank", "typed", "")
+  })
+
+  it("passes the signed-in user so the turn lands in their history", async () => {
+    const spy = vi.fn().mockResolvedValue({ ok: true, turn: null, error: null })
+    window.pywebview = { api: { ask: spy } }
+    await ask("how do i fold the boom", "voice", "priya-sharma")
+    expect(spy).toHaveBeenCalledWith(
+      "how do i fold the boom",
+      "voice",
+      "priya-sharma",
+    )
   })
 
   it("reports a clear error when the bridge is missing", async () => {

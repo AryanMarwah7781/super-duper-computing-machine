@@ -16,6 +16,7 @@ from .client.transport import StaleResponse, Transport, TransportError
 from .config import Config
 from .models.wire import Turn
 from .turnlog import TurnLog
+from .users import UserStore
 
 Emit = Callable[[str, dict], None]
 
@@ -31,11 +32,13 @@ def _turn_to_dict(turn: Turn) -> dict:
 
 class Api:
     def __init__(self, config: Config, emit: Emit,
-                 log_path: Optional[Path] = None) -> None:
+                 log_path: Optional[Path] = None,
+                 profiles_path: Optional[Path] = None) -> None:
         self._config = config
         self._emit = emit
         self._transport = Transport(config.devkit_url, config.timeout_s)
         self._log = TurnLog(log_path or Path("turns.jsonl"))
+        self._users = UserStore(profiles_path or Path("data/profiles.json"))
         self._monitor = HealthMonitor(self._transport, self._on_connection_change)
 
     # -- lifecycle ---------------------------------------------------------
@@ -59,7 +62,8 @@ class Api:
         self._transport.cancel()
         return {"ok": True}
 
-    def ask(self, query: str, source: str = "typed") -> dict:
+    def ask(self, query: str, source: str = "typed",
+            user_id: str = "") -> dict:
         query = (query or "").strip()
         if not query:
             return {"ok": False, "turn": None, "error": "empty question"}
@@ -69,7 +73,33 @@ class Api:
             return {"ok": False, "turn": None, "error": None, "stale": True}
         except TransportError as e:
             self._log.append_error(query, e.detail, source=source)
+            if user_id:
+                self._users.record(user_id, query, "error", source)
             self._emit("error", {"code": "transport", "message": e.detail})
             return {"ok": False, "turn": None, "error": e.detail}
         self._log.append(query, turn, source=source)
-        return {"ok": True, "turn": _turn_to_dict(turn), "error": None}
+        payload = _turn_to_dict(turn)
+        # The whole turn is stored, so re-opening a past question re-renders the
+        # answer as it was given rather than re-asking a corpus that may differ.
+        if user_id:
+            self._users.record(user_id, query, turn.plan.kind, source,
+                               turn=payload)
+        return {"ok": True, "turn": payload, "error": None}
+
+    # -- who is at the screen ---------------------------------------------
+    def list_users(self) -> dict:
+        return {"ok": True, "users": self._users.list_users()}
+
+    def login(self, name: str) -> dict:
+        try:
+            user = self._users.login(name)
+        except ValueError as e:
+            return {"ok": False, "user": None, "error": str(e)}
+        return {"ok": True, "user": user, "error": None}
+
+    def history(self, user_id: str) -> dict:
+        return {"ok": True, "entries": self._users.history(user_id)}
+
+    def clear_history(self, user_id: str) -> dict:
+        self._users.clear_history(user_id)
+        return {"ok": True}

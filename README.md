@@ -69,6 +69,33 @@ scp service/service.py <devkit>:/media/nvme/ari_jd/v4/service.py
 Verify `IMAGES_ROOT` at the top of that file points at the directory containing
 the `image_path` values in `v4/data/chunks.json` before relying on photos.
 
+## Screens
+
+```
+login  ──▶  home  ──┬──▶  chat        working RAG answers + this user's history
+                    ├──▶  lesson      placeholder, navigation wired
+                    └──▶  simulator   placeholder, navigation wired
+```
+
+Back and forward sit in the top bar and behave like a browser: navigating
+somewhere new truncates the forward branch. Signing out clears the whole trail,
+so the next person cannot walk back into the previous operator's session.
+
+## Users and history
+
+Sign in by typing a name, or pick one of the seeded profiles. There is no
+password — one screen, one operator, and a name is only there to load the right
+history.
+
+`data/profiles.json` holds the roster and each person's questions. It seeds
+three mock users with history on first run (Priya Sharma, Marcus Chen, Dan
+Whitfield); delete the file to reseed. History is capped at 100 turns per
+person.
+
+Each recorded turn stores the **whole answer**, so re-opening a past question
+re-renders exactly what was said at the time rather than re-asking a corpus that
+may since have changed.
+
 ## Turn log
 
 Every turn appends a line to `turns.jsonl`: the question, which chunk won, the
@@ -78,6 +105,20 @@ accuracy is still unmeasured, and this is the evidence base for fixing it.
 ## Phase status
 
 - **Phase 1 — typed path.** Complete.
+- **Phase 1b — welcome flow.** Complete: login, three-tile menu, back/forward,
+  per-user chat history.
 - **Phase 2 — voice.** Not started. Push-to-talk, local `faster-whisper` STT,
-  streaming Piper TTS, all in this Python process.
-- **Phase 3 — wake word.** Blocked: `hey_deere.onnx` does not exist yet.
+  streaming Piper TTS, all in this Python process. The history model already
+  records `source: "voice"`, so the sidebar is ready for it.
+- **Phase 3 — wake word.** Blocked. Neither `hey_deere.onnx` nor
+  `hey_chris.onnx` exists — `wake_word/` holds only `hey_deere_config.yaml`,
+  `train_hey_deere.ipynb` and `train_hey_deere.py`. `openwakeword` runs fine on
+  Windows, so this needs a model trained (retarget the config to "hey chris"
+  and run the notebook), not new architecture.
+
+## Branding
+
+The UI is deliberately brand-neutral. `https://www.ltts.com/media-kit` returns
+HTTP 403 to automated fetches, so the logo, colours and typography could not be
+retrieved and have **not** been guessed at. Drop the real assets in and the
+theme variables in `ui/src/index.css` are where they belong.

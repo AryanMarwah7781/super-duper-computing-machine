@@ -11,3 +11,5 @@ turns.jsonl
 .env
 
 data/profiles.json
+
+data/cma_baseline.txt

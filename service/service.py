@@ -21,6 +21,7 @@ import hashlib
 import sys
 import threading
 import time
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
 
@@ -36,11 +37,20 @@ from assist.answer.render import render          # noqa: E402
 from assist.answer.route import route            # noqa: E402
 from assist.retrieve import search as S          # noqa: E402
 
-app = FastAPI(title="deere-assist-v4")
-
 _state: dict = {"ready": False, "error": None, "started": time.time(),
                 "corpus_hash": "", "chunk_count": 0}
 _query_lock = threading.Lock()
+
+
+@asynccontextmanager
+async def lifespan(_app: "FastAPI"):
+    # Loading takes ~26s. Do it at startup on a background thread so the port
+    # answers immediately and /health can report ready=false meanwhile.
+    threading.Thread(target=_warm, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="deere-assist-v4", lifespan=lifespan)
 
 
 class AskRequest(BaseModel):
@@ -51,17 +61,22 @@ class AskRequest(BaseModel):
 def _warm() -> None:
     try:
         loaded = S._load()
-        chunks_path = V4_ROOT / "data" / "chunks.json"
-        digest = hashlib.sha1(chunks_path.read_bytes()).hexdigest()[:8]
-        _state.update(ready=True, corpus_hash=digest,
-                      chunk_count=len(loaded["by_id"]))
     except Exception as e:  # surfaced through /health, not swallowed
         _state["error"] = f"{type(e).__name__}: {e}"
+        return
 
+    # The corpus hash only identifies *which* corpus is loaded. Failing to read
+    # it must not keep a perfectly good index from serving — an earlier version
+    # computed it inside the same try, so a missing chunks.json bricked the
+    # service with the index already loaded.
+    try:
+        digest = hashlib.sha1(
+            (V4_ROOT / "data" / "chunks.json").read_bytes()).hexdigest()[:8]
+    except OSError:
+        digest = ""
 
-@app.on_event("startup")
-def startup() -> None:
-    threading.Thread(target=_warm, daemon=True).start()
+    _state.update(ready=True, corpus_hash=digest,
+                  chunk_count=len(loaded["by_id"]))
 
 
 @app.get("/ready")

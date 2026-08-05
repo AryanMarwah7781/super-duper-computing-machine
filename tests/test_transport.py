@@ -45,6 +45,15 @@ def test_unreachable_devkit_raises_transport_error():
     assert exc.value.detail
 
 
+def test_refused_connection_does_not_claim_a_timeout():
+    """A refused port is not a slow devkit, and must not say it was."""
+    t = Transport("http://127.0.0.1:9", timeout_s=20.0)
+    with pytest.raises(TransportError) as exc:
+        t.ask("anything")
+    assert "cannot reach" in exc.value.detail
+    assert "20s" not in exc.value.detail
+
+
 def test_a_superseded_generation_is_stale(devkit_url):
     t = Transport(devkit_url)
     generation = t._current_generation()

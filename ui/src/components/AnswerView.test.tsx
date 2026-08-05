@@ -1,0 +1,79 @@
+import { render, screen } from "@testing-library/react"
+import { describe, expect, it } from "vitest"
+import type { TurnDto } from "@/lib/bridge"
+import { AnswerView } from "./AnswerView"
+
+const PROCEDURE: TurnDto = {
+  plan: { kind: "cached", chunk_ids: [412], reason: "top=procedure score=8.14" },
+  answer: {
+    display_text:
+      "**WARNING:** Keep bystanders clear.\nStep 1: Park the machine.\n" +
+      "[PHOTO: Fill cap location]\nStep 2: Open the fill cap.\n\n_Manual page 472._",
+    spoken_segments: [],
+    safety: [{ level: "WARNING", text: "Keep bystanders clear.", page: 472 }],
+    citations: [
+      { page: 472, procedure_name: "Fill Solution Tank", method: "image" },
+    ],
+    images: [
+      {
+        id_code: "N1",
+        image_path: "images/fill_cap.png",
+        caption: "Fill cap location",
+        step_num: 1,
+      },
+    ],
+    render_version: "v4.0",
+    source_hash: "abc",
+  },
+  candidates: [],
+  timing: { total_ms: 4520 },
+}
+
+const OOS: TurnDto = {
+  plan: { kind: "oos", chunk_ids: [], reason: "best of 5 candidates -3.63 < 0.0" },
+  answer: null,
+  candidates: [],
+  timing: { total_ms: 4305 },
+}
+
+describe("AnswerView", () => {
+  it("renders steps and the citation", () => {
+    render(<AnswerView turn={PROCEDURE} />)
+    expect(screen.getByText(/Park the machine/)).toBeDefined()
+    expect(screen.getByText(/Open the fill cap/)).toBeDefined()
+    expect(screen.getByText(/page 472/i)).toBeDefined()
+  })
+
+  it("renders safety above the first step", () => {
+    const { container } = render(<AnswerView turn={PROCEDURE} />)
+    const html = container.innerHTML
+    expect(html.indexOf("Keep bystanders clear")).toBeLessThan(
+      html.indexOf("Park the machine"),
+    )
+  })
+
+  it("renders the photo against the local bundle server", () => {
+    render(<AnswerView turn={PROCEDURE} />)
+    const img = screen.getByAltText("Fill cap location")
+    expect(img.getAttribute("src")).toBe("/images/fill_cap.png")
+  })
+
+  it("says it does not know rather than guessing, on oos", () => {
+    render(<AnswerView turn={OOS} />)
+    expect(screen.getByText(/don't know/i)).toBeDefined()
+  })
+
+  it("marks a synthesize answer as an unsynthesised excerpt", () => {
+    render(
+      <AnswerView
+        turn={{ ...PROCEDURE, plan: { ...PROCEDURE.plan, kind: "synthesize" } }}
+      />,
+    )
+    expect(screen.getByText(/excerpt/i)).toBeDefined()
+  })
+
+  it("renders nothing when there is no turn", () => {
+    const { container } = render(<AnswerView turn={null} />)
+    expect(container.textContent?.trim()).toBe("")
+  })
+})

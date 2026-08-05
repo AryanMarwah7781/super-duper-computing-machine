@@ -60,6 +60,12 @@ class Transport:
                            json={"query": query, "top_k": top_k})
                 r.raise_for_status()
                 payload = r.json()
+        except httpx.ConnectError as e:
+            # Checked before TimeoutException: ConnectTimeout subclasses it, and
+            # "did not answer in 20s" is a lie when the port refused instantly.
+            raise TransportError(f"cannot reach the devkit at {self.base_url}") from e
+        except httpx.ConnectTimeout as e:
+            raise TransportError(f"cannot reach the devkit at {self.base_url}") from e
         except httpx.TimeoutException as e:
             raise TransportError(f"the devkit did not answer within "
                                  f"{self.timeout_s:.0f}s") from e

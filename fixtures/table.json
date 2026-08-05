@@ -1,0 +1,23 @@
+{
+  "plan": {"kind": "cached", "chunk_ids": [901],
+           "reason": "top=table score=6.02"},
+  "answer": {
+    "display_text": "**Tire Inflation Pressure**\n\nTire Size | Pressure | Load\n380/90R46 | 240 kPa | 3200 kg\n480/80R42 | 200 kPa | 3650 kg\n\n_Manual page 611._",
+    "spoken_segments": [
+      "Tire Inflation Pressure.",
+      "Tire Size: Pressure, Load.",
+      "380/90R46: 240 kPa, 3200 kg.",
+      "480/80R42: 200 kPa, 3650 kg.",
+      "See page 611."
+    ],
+    "safety": [],
+    "citations": [{"page": 611, "procedure_name": "Tire Inflation Pressure",
+                   "chunk_id": 901, "method": "text"}],
+    "images": [],
+    "render_version": "v4.0",
+    "source_hash": "0f1e2d3c4b5a6978"
+  },
+  "candidates": [{"chunk_id": 901, "score": 6.02, "content_type": "table",
+                  "procedure_name": "Tire Inflation Pressure", "page": 611}],
+  "timing": {"search_ms": 3980, "render_ms": 1, "total_ms": 3985}
+}

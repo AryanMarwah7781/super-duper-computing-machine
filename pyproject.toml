@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "assist-desktop"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pywebview>=5.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "fastapi>=0.110", "uvicorn>=0.29"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
+[tool.setuptools.packages.find]
+include = ["assist_desktop*", "tools*"]

@@ -1,0 +1,21 @@
+{
+  "plan": {"kind": "synthesize", "chunk_ids": [233, 61, 700],
+           "reason": "prose synthesis from passage score=4.41"},
+  "answer": {
+    "display_text": "**Engine Oil Specification**\n\nUse John Deere Plus-50 II oil. Viscosity is selected from the expected ambient temperature range.\n\n_Manual page 588._",
+    "spoken_segments": [
+      "Engine Oil Specification.",
+      "Use John Deere Plus-50 II oil. Viscosity is selected from the expected ambient temperature range.",
+      "See page 588."
+    ],
+    "safety": [],
+    "citations": [{"page": 588, "procedure_name": "Engine Oil Specification",
+                   "chunk_id": 233, "method": "interpolate"}],
+    "images": [],
+    "render_version": "v4.0",
+    "source_hash": "99aabbccddeeff00"
+  },
+  "candidates": [{"chunk_id": 233, "score": 4.41, "content_type": "passage",
+                  "procedure_name": "Engine Oil Specification", "page": 588}],
+  "timing": {"search_ms": 4102, "render_ms": 1, "total_ms": 4108}
+}

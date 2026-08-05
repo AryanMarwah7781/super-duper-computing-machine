@@ -1,0 +1,51 @@
+{
+  "plan": {
+    "kind": "cached",
+    "chunk_ids": [412],
+    "reason": "top=procedure score=8.14"
+  },
+  "answer": {
+    "display_text": "**WARNING:** Keep bystanders clear of the machine while filling.\nStep 1: Park the machine on a level surface and shut off the engine.\nStep 2: Open the fill cap (A: Fill Cap).\n[PHOTO: Fill cap location]\nStep 3: Fill the solution tank to the required level.\n**CAUTION:** Do not overfill the tank.\n\n_Manual page 472._",
+    "spoken_segments": [
+      "Warning. Keep bystanders clear of the machine while filling.",
+      "Step 1. Park the machine on a level surface and shut off the engine.",
+      "Step 2. Open the fill cap, A, Fill Cap.",
+      "Step 3. Fill the solution tank to the required level.",
+      "Caution. Do not overfill the tank.",
+      "See page 472."
+    ],
+    "safety": [
+      {
+        "level": "WARNING",
+        "text": "Keep bystanders clear of the machine while filling.",
+        "source_chunk_id": 88,
+        "page": 472
+      }
+    ],
+    "citations": [
+      {
+        "page": 472,
+        "procedure_name": "Fill Solution Tank",
+        "chunk_id": 412,
+        "method": "image"
+      }
+    ],
+    "images": [
+      {
+        "id_code": "N136007—UN—05MAR18",
+        "image_path": "images/fill_cap.png",
+        "caption": "Fill cap location",
+        "step_num": 2
+      }
+    ],
+    "render_version": "v4.0",
+    "source_hash": "a1b2c3d4e5f60718"
+  },
+  "candidates": [
+    {"chunk_id": 412, "score": 8.14, "content_type": "procedure",
+     "procedure_name": "Fill Solution Tank", "page": 472},
+    {"chunk_id": 88, "score": 2.01, "content_type": "caution",
+     "procedure_name": "Fill Solution Tank", "page": 472}
+  ],
+  "timing": {"search_ms": 4510, "render_ms": 3, "total_ms": 4520}
+}

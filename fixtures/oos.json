@@ -1,0 +1,8 @@
+{
+  "plan": {"kind": "oos", "chunk_ids": [],
+           "reason": "best of 5 candidates -3.63 < 0.0"},
+  "answer": null,
+  "candidates": [{"chunk_id": 77, "score": -3.63, "content_type": "procedure",
+                  "procedure_name": "Tow Machine", "page": 120}],
+  "timing": {"search_ms": 4301, "render_ms": 0, "total_ms": 4305}
+}

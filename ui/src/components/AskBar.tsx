@@ -14,10 +14,13 @@ export function AskBar({
   const [value, setValue] = useState("")
   return (
     <form
-      className="flex gap-3 border-b px-6 py-4"
+      className="flex gap-3 border-t bg-card px-6 py-4"
       onSubmit={(e) => {
         e.preventDefault()
-        if (value.trim()) onAsk(value.trim())
+        if (value.trim()) {
+          onAsk(value.trim())
+          setValue("")
+        }
       }}
     >
       <Input

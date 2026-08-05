@@ -3,6 +3,7 @@ import { UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { listUsers, login, type UserDto } from "@/lib/bridge"
+import { CollaborationMark } from "./CollaborationMark"
 
 function initials(name: string): string {
   return name
@@ -101,6 +102,8 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (u: UserDto) => void }
             </div>
           </>
         )}
+
+        <CollaborationMark className="mt-14" />
       </div>
     </div>
   )

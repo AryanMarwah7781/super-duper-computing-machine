@@ -122,3 +122,48 @@ The UI is deliberately brand-neutral. `https://www.ltts.com/media-kit` returns
 HTTP 403 to automated fetches, so the logo, colours and typography could not be
 retrieved and have **not** been guessed at. Drop the real assets in and the
 theme variables in `ui/src/index.css` are where they belong.
+
+## Running it, with the logs visible
+
+```powershell
+.\run.ps1                # check the board, then start — logs stream here
+.\run.ps1 -Check         # preflight only, changes nothing
+.\run.ps1 -Fake          # fixture replayer, no devkit needed
+.\run.ps1 -Build         # rebuild the interface first
+.\run.ps1 -Sensitive     # lower the wake-word threshold for this run
+```
+
+It runs in the **foreground**. Ctrl-C, or closing the window, stops everything —
+nothing is detached.
+
+In a second window:
+
+```powershell
+.\logs.ps1               # follow the application log, colour-coded
+.\logs.ps1 -Voice        # only wake word, transcripts and audio
+.\logs.ps1 -Board        # follow the board's manual service instead
+```
+
+`logs/app.log` survives restarts, so a problem from five minutes ago is still
+there when you go looking.
+
+### When "hey chris" does nothing
+
+Run `.\logs.ps1 -Voice` and say it. The log distinguishes the cases:
+
+| Line | Meaning |
+|---|---|
+| `microphone open, listening` | the audio path is up |
+| `near miss: peak=0.52 ran=2` | heard, but short of the gate — lower it |
+| `WAKE score=0.83 frames=4` | fired |
+| *(nothing at all)* | no audio arriving — wrong device, or something else holds the microphone |
+
+Tune without editing code:
+
+```powershell
+$env:ASSIST_WAKE_THRESHOLD = "0.45"   # default 0.6
+$env:ASSIST_WAKE_FRAMES    = "2"      # default 3
+```
+
+`tools\voice_debug.py` shows the score live with sliders. It opens its own
+microphone, so close the main app first — Windows will not share one.

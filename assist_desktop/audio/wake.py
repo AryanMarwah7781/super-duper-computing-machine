@@ -40,11 +40,23 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from ..logs import get as get_logger
+
+log = get_logger("wake")
+
 DEFAULT_MODEL_DIR = Path(r"C:\Users\user\Desktop\jd\wakeword")
 
-SCORE_THRESHOLD = 0.8         # a frame counts as "hot" above this
-REQUIRED_HOT_FRAMES = 3       # consecutive hot frames needed to fire
+# Tunable without editing code:
+#   $env:ASSIST_WAKE_THRESHOLD = "0.5"
+#   $env:ASSIST_WAKE_FRAMES    = "2"
+# The measured values came from synthetic speech; a real voice in a real room
+# will want different ones, and tools/voice_debug.py shows what yours scores.
+SCORE_THRESHOLD = float(os.environ.get("ASSIST_WAKE_THRESHOLD", "0.6"))
+REQUIRED_HOT_FRAMES = int(os.environ.get("ASSIST_WAKE_FRAMES", "3"))
 REFRACTORY_S = 2.0            # ignore further detections for this long
+# Report runs that got close but did not fire, so the log can answer "why did
+# nothing happen" instead of staying silent.
+NEAR_MISS_SCORE = 0.35
 
 
 @dataclass(frozen=True)
@@ -144,6 +156,13 @@ class WakeWord:
                 else:
                     return None
             else:
+                # A run just ended. If it got anywhere near, say so — this is
+                # the difference between "the microphone is dead" and "you were
+                # one frame short of firing".
+                if self._peak >= NEAR_MISS_SCORE:
+                    log.info("near miss: peak=%.3f ran=%d (need %d frames above "
+                             "%.2f)", self._peak, self._hot,
+                             self.required_hot_frames, self.threshold)
                 self._hot = 0
                 self._peak = 0.0
                 return None

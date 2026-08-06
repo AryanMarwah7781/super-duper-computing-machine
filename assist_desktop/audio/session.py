@@ -25,6 +25,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from ..logs import get as get_logger
 from .mic import Microphone, rms_level
 from .stt import Endpointer, Transcriber, Utterance
 from .wake import Detection, WakeWord
@@ -39,6 +40,7 @@ class VoiceState(str, Enum):
 
 Emit = Callable[[str, dict], None]
 AskFn = Callable[[str], None]
+log = get_logger("audio")
 
 
 class VoiceSession:
@@ -73,6 +75,7 @@ class VoiceSession:
             return self.status()
 
         if not self._wake.load():
+            log.error("wake model failed to load: %s", self._wake.error)
             self.error = self._wake.error
             self._set_state(VoiceState.OFF, error=self.error)
             return self.status()
@@ -82,11 +85,13 @@ class VoiceSession:
         threading.Thread(target=self._stt.load, daemon=True).start()
 
         if not self._mic.start():
+            log.error("microphone failed to open: %s", self._mic.error)
             self.error = self._mic.error
             self._set_state(VoiceState.OFF, error=self.error)
             return self.status()
 
         self._unsubscribe = self._mic.subscribe(self._on_frame)
+        log.info('microphone open, listening for "hey chris"')
         self.error = None
         self._set_state(VoiceState.IDLE)
         return self.status()
@@ -142,6 +147,7 @@ class VoiceSession:
         # Mute for the whole utterance: the question would otherwise retrigger
         # the gate that is already listening to it.
         self._wake.mute(seconds=15.0)
+        log.info("WAKE score=%.3f frames=%d", hit.score, hit.hot_frames)
         self._emit("wake", {"score": round(hit.score, 3),
                             "hot_frames": hit.hot_frames})
         self._set_state(VoiceState.LISTENING)
@@ -156,6 +162,10 @@ class VoiceSession:
             self._wake.unmute()
 
         text = (text or "").strip()
+        log.info("heard %.1fs (%s) -> %r", utterance.seconds,
+                 utterance.ended_on, text)
+        if len(text) < 3:
+            log.info("  too short to ask, ignoring")
         self._emit("transcript", {"text": text, "seconds": round(utterance.seconds, 2),
                                   "ended_on": utterance.ended_on})
         self._set_state(VoiceState.IDLE)

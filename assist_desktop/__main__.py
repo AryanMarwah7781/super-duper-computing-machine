@@ -14,6 +14,8 @@ import webview
 from .api import Api
 from .bundle_server import BundleServer
 from .config import Config
+from .logs import get as get_logger
+from .logs import setup as setup_logging
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "ui" / "dist"
@@ -28,6 +30,10 @@ def main() -> None:
     parser.add_argument("--devkit", default=None, help="devkit base URL")
     args = parser.parse_args()
 
+    log_file = setup_logging()
+    log = get_logger("main")
+    log.info("=" * 62)
+
     config = Config.load()
     if args.devkit:
         config = Config(devkit_url=args.devkit, timeout_s=config.timeout_s,
@@ -38,8 +44,11 @@ def main() -> None:
             f"no built UI at {DIST}. Run `npm run build` in ui/, or pass --dev."
         )
 
+    log.info("devkit    %s", config.devkit_url)
+    log.info("log file  %s", log_file)
     server = BundleServer(DIST, config.devkit_url, CACHE)
     base_url = server.start()
+    log.info("ui served %s", base_url)
     url = "http://localhost:5173" if args.dev else base_url
 
     window_ref: list = []
@@ -61,10 +70,13 @@ def main() -> None:
     window_ref.append(window)
 
     try:
+        log.info("window opening - close it to stop")
         webview.start(api.start)
     finally:
+        log.info("shutting down")
         api.stop()
         server.stop()
+        log.info("stopped")
 
 
 if __name__ == "__main__":

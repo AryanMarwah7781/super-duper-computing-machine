@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .client.health import ConnectionState, HealthMonitor
+from .logs import get as get_logger
 from .client.transport import StaleResponse, Transport, TransportError
 from .config import Config
 from .models.wire import Turn
@@ -19,6 +20,7 @@ from .turnlog import TurnLog
 from .users import UserStore
 
 Emit = Callable[[str, dict], None]
+log = get_logger("api")
 
 
 def _turn_to_dict(turn: Turn) -> dict:
@@ -53,6 +55,7 @@ class Api:
         self._monitor.stop()
 
     def _on_connection_change(self, state: ConnectionState, detail: str) -> None:
+        log.info("devkit %s - %s", state.value, detail)
         self._emit("connection", {"state": state.value, "detail": detail})
 
     # -- bridge methods ----------------------------------------------------
@@ -71,17 +74,23 @@ class Api:
         query = (query or "").strip()
         if not query:
             return {"ok": False, "turn": None, "error": "empty question"}
+        log.info("ask (%s) %r", source, query)
         try:
             turn = self._transport.ask(query, top_k=self._config.top_k)
         except StaleResponse:
+            log.info("  superseded, discarding")
             return {"ok": False, "turn": None, "error": None, "stale": True}
         except TransportError as e:
             self._log.append_error(query, e.detail, source=source)
             if user_id:
                 self._users.record(user_id, query, "error", source)
+            log.warning("  FAILED: %s", e.detail)
             self._emit("error", {"code": "transport", "message": e.detail})
             return {"ok": False, "turn": None, "error": e.detail}
         self._log.append(query, turn, source=source)
+        top = turn.candidates[0].procedure_name if turn.candidates else "-"
+        log.info("  %s in %sms - %s", turn.plan.kind,
+                 turn.timing.get("total_ms", "?"), top or "-")
         payload = _turn_to_dict(turn)
         # The whole turn is stored, so re-opening a past question re-renders the
         # answer as it was given rather than re-asking a corpus that may differ.
@@ -112,6 +121,7 @@ class Api:
     def set_active_user(self, user_id: str) -> dict:
         """Who a spoken question belongs to. Called on sign-in and sign-out."""
         self._active_user = user_id or ""
+        log.info("active user: %s", self._active_user or "(signed out)")
         return {"ok": True}
 
     def _ask_from_voice(self, text: str) -> None:
@@ -128,8 +138,11 @@ class Api:
 
     def start_voice(self) -> dict:
         try:
-            return {"ok": True, **self._voice_session().start()}
+            status = self._voice_session().start()
+            log.info("voice start: %s", status)
+            return {"ok": True, **status}
         except Exception as e:
+            log.exception("voice failed to start")
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     def stop_voice(self) -> dict:

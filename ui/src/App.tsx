@@ -19,7 +19,8 @@ const TITLES: Record<ScreenName, string> = {
 }
 
 export default function App() {
-  const { state, detail, turn, error, busy, ask, showTurn } = useAssist()
+  const { state, detail, messages, busy, ask, appendHistory, clearConversation } =
+    useAssist()
   const nav = useNavigation("login")
   const [user, setUser] = useState<UserDto | null>(null)
   const [entries, setEntries] = useState<HistoryEntry[]>([])
@@ -30,7 +31,7 @@ export default function App() {
 
   useEffect(() => {
     if (user) void refreshHistory(user.id)
-  }, [user, refreshHistory, turn])
+  }, [user, refreshHistory, messages.length])
 
   function signIn(next: UserDto) {
     setUser(next)
@@ -40,7 +41,7 @@ export default function App() {
   function signOut() {
     setUser(null)
     setEntries([])
-    showTurn(null)
+    clearConversation()
     nav.reset("login")
   }
 
@@ -52,6 +53,11 @@ export default function App() {
   )
 
   const unavailable = state === "offline" || state === "warming"
+  const lastAnswer = [...messages].reverse().find((m) => m.role === "assistant")
+  const totalMs =
+    lastAnswer && lastAnswer.role === "assistant"
+      ? lastAnswer.turn?.timing?.total_ms
+      : undefined
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -76,15 +82,14 @@ export default function App() {
 
         {nav.screen === "chat" && (
           <ChatScreen
-            turn={turn}
+            messages={messages}
             entries={entries}
             busy={busy}
             unavailable={unavailable}
             detail={detail}
-            error={error}
             state={state}
             onAsk={onAsk}
-            onReopen={(entry) => showTurn(entry.turn)}
+            onReopen={(entry) => appendHistory(entry.query, entry.turn)}
           />
         )}
 
@@ -108,11 +113,7 @@ export default function App() {
       </div>
 
       {nav.screen !== "login" && (
-        <StatusStrip
-          state={state}
-          detail={detail}
-          totalMs={turn?.timing?.total_ms}
-        />
+        <StatusStrip state={state} detail={detail} totalMs={totalMs} />
       )}
     </div>
   )

@@ -26,8 +26,18 @@ def test_recovers_from_offline_to_ready():
     assert state is ConnectionState.READY
 
 
-def test_version_mismatch_is_ready_but_warns():
+def test_unknown_version_is_ready_but_warns():
     state, detail = next_state(ConnectionState.CONNECTING,
-                               {"ready": True, "render_version": "v3.9"}, None)
+                               {"ready": True, "render_version": "v9.9"}, None)
     assert state is ConnectionState.READY
-    assert "v3.9" in detail
+    assert "v9.9" in detail
+
+
+def test_v3_is_supported_and_named_not_warned_about():
+    """Both pipelines emit the same display grammar, so v3 is a normal state,
+    not a mismatch — it must not nag on every poll."""
+    state, detail = next_state(ConnectionState.CONNECTING,
+                               {"ready": True, "render_version": "v3"}, None)
+    assert state is ConnectionState.READY
+    assert "expects" not in detail and "supports" not in detail
+    assert "v3" in detail

@@ -8,6 +8,10 @@ from typing import Callable, Optional
 
 from .transport import Transport, TransportError
 
+# Both pipelines emit the same display grammar, so the client renders either.
+# v3 is the one currently deployed: it retrieves "how do i start spraying"
+# correctly, which v4 regressed. v4 has the better safety attachment.
+SUPPORTED_RENDER_VERSIONS = ("v4.0", "v3")
 EXPECTED_RENDER_VERSION = "v4.0"
 
 
@@ -26,10 +30,12 @@ def next_state(current: ConnectionState, health: Optional[dict],
     if not health.get("ready", False):
         return ConnectionState.WARMING, "devkit is warming up — loading the index"
     version = health.get("render_version", "")
-    if version and version != EXPECTED_RENDER_VERSION:
+    if version and version not in SUPPORTED_RENDER_VERSIONS:
         return (ConnectionState.READY,
                 f"connected, but the service renders {version} and this client "
-                f"expects {EXPECTED_RENDER_VERSION}")
+                f"supports {', '.join(SUPPORTED_RENDER_VERSIONS)}")
+    if version and version != EXPECTED_RENDER_VERSION:
+        return ConnectionState.READY, f"connected — {version} pipeline"
     return ConnectionState.READY, "connected"
 
 

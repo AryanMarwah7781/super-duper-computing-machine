@@ -93,6 +93,35 @@ function bridge() {
   return window.pywebview?.api
 }
 
+/**
+ * pywebview injects window.pywebview.api *after* the page loads and announces
+ * it with a `pywebviewready` event. Anything that calls the bridge on mount —
+ * loading the operator roster, for one — races that injection and silently
+ * gets nothing back. Await this first.
+ *
+ * Resolves false in a plain browser (no bridge will ever arrive), so callers
+ * degrade instead of hanging.
+ */
+export function whenBridgeReady(timeoutMs = 5000): Promise<boolean> {
+  if (bridge()) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    let done = false
+    const finish = (ok: boolean) => {
+      if (done) return
+      done = true
+      window.removeEventListener("pywebviewready", onReady)
+      clearInterval(poll)
+      clearTimeout(bail)
+      resolve(ok)
+    }
+    const onReady = () => finish(true)
+    window.addEventListener("pywebviewready", onReady)
+    // The event fires before some listeners attach in practice, so poll too.
+    const poll = setInterval(() => bridge() && finish(true), 100)
+    const bail = setTimeout(() => finish(Boolean(bridge())), timeoutMs)
+  })
+}
+
 export async function ask(
   query: string,
   source = "typed",

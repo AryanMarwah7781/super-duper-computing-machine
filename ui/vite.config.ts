@@ -7,6 +7,7 @@ import tailwindcss from "@tailwindcss/vite"
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "./src") } },
+  assetsInclude: ["**/*.glb"],
   build: { outDir: "dist" },
   test: { environment: "jsdom", globals: true },
 })

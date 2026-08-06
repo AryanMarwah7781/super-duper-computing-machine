@@ -42,8 +42,23 @@ log = get_logger("commands")
 
 # Where the simulator listens. The old scripts hardcoded a Windows machine on
 # the lab network; this is the same endpoint, made configurable.
-TRIGGER_URL = os.environ.get("ASSIST_TRIGGER_URL", "http://192.168.94.11:5000/trigger")
-TRIGGER_TIMEOUT_S = float(os.environ.get("ASSIST_TRIGGER_TIMEOUT_S", "5"))
+DEFAULT_TRIGGER_URL = "http://192.168.94.11:5000/trigger"
+
+
+def trigger_url() -> str:
+    """The simulator's address, read now rather than at import.
+
+    This used to be a module constant. api.py imports commands before anything
+    imports config -- and config is what reads .env -- so the constant captured
+    the default before .env had been loaded, and setting ASSIST_TRIGGER_URL
+    there did nothing at all. Orders went to the old lab machine with no error.
+    Reading it per send also means the address can change without a restart.
+    """
+    return os.environ.get("ASSIST_TRIGGER_URL", DEFAULT_TRIGGER_URL)
+
+
+def trigger_timeout_s() -> float:
+    return float(os.environ.get("ASSIST_TRIGGER_TIMEOUT_S", "5"))
 
 # A leading question word means they are asking about the command, not issuing
 # it. Without this, "how do i start spraying" starts the sprayer.
@@ -64,6 +79,24 @@ _ASKING = (
     "tell me", "explain", "what is", "what are", "walk me through",
     "steps to", "procedure for", "instructions for", "show me how",
 )
+
+
+# What the decoder produces anyway, having already been primed. Only
+# command-shaped phrases appear here: "spring" alone is an ordinary word and
+# must never be repaired, or "check the spring tension" starts the sprayer.
+MISHEARD: dict[str, str] = {
+    "start spring": "start_spraying",
+    "start spinning": "start_spraying",
+    "start speaking": "start_spraying",
+    "start solution bump": "start_spraying",
+    "start solution dump": "start_spraying",
+    "start solution hump": "start_spraying",
+    # The confusion is in "spraying", so it survives a change of verb. These
+    # are inferred from the same phonetics rather than separately observed.
+    "stop spring": "stop_spraying",
+    "stop spinning": "stop_spraying",
+    "stop speaking": "stop_spraying",
+}
 
 
 @dataclass(frozen=True)
@@ -124,7 +157,7 @@ def _send(payload: str) -> tuple[bool, str]:
     import httpx
     body = {"timestamp": datetime.now().isoformat(), "command": payload}
     try:
-        r = httpx.post(TRIGGER_URL, json=body, timeout=TRIGGER_TIMEOUT_S)
+        r = httpx.post(trigger_url(), json=body, timeout=trigger_timeout_s())
         r.raise_for_status()
         return True, ""
     except Exception as e:
@@ -149,6 +182,13 @@ def match(text: str) -> Optional[str]:
     )
     for phrase, name in candidates:
         if phrase and phrase in norm:
+            return name
+
+    # Only once nothing legitimate matched. The question guards above still
+    # apply, so a misheard question stays a question.
+    for phrase, name in sorted(MISHEARD.items(), key=lambda kv: -len(kv[0])):
+        if phrase in norm:
+            log.info("repaired mishearing %r -> %s", norm, name)
             return name
     return None
 

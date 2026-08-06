@@ -8,12 +8,22 @@ on the same network as the SiMa devkit, with a microphone.
 ```powershell
 git clone -b deploy https://github.com/AryanMarwah7781/super-duper-computing-machine.git assist
 cd assist
-.\setup.ps1 -Devkit http://<board-ip>:8090
+.\setup.ps1 -Devkit http://<board-ip>:8090 -Trigger http://<simulator-ip>:5000/trigger
 ```
 
 `setup.ps1` creates the virtual environment, installs everything, downloads the
-speech voice (~60 MB), builds the interface, and writes your devkit address to
+speech voice (~60 MB), builds the interface, and writes both addresses to
 `.env`. Re-running it is safe.
+
+**Two machines, and they are easy to confuse.** The devkit answers questions
+from the manual; the simulator receives spoken orders like "fold the boom".
+Copy `.env.example` to `.env` and edit it, or pass the flags above. `run.ps1`
+prints both addresses as it starts, so a wrong one shows before you speak.
+
+| If this moves | Change | Symptom when wrong |
+|---|---|---|
+| the SiMa board | `ASSIST_DEVKIT_URL` | questions fail, offline banner |
+| the simulator PC | `ASSIST_TRIGGER_URL` | "I could not reach the machine" |
 
 Needs **Python 3.11+** and **Node 20+** on PATH. It checks and tells you if they
 are missing.
@@ -77,8 +87,10 @@ All optional; `.env` or the environment.
 
 | Variable | Default | |
 |---|---|---|
-| `ASSIST_DEVKIT_URL` | `http://192.168.94.180:8090` | the board |
+| `ASSIST_DEVKIT_URL` | `http://192.168.94.180:8090` | the board that answers questions |
+| `ASSIST_TRIGGER_URL` | `http://192.168.94.11:5000/trigger` | the simulator that spoken orders act on |
 | `ASSIST_TIMEOUT_S` | `20` | give up on a question after this long |
+| `ASSIST_TRIGGER_TIMEOUT_S` | `5` | give up on an order after this long |
 | `ASSIST_WAKE_THRESHOLD` | `0.6` | how confident before "hey chris" fires |
 | `ASSIST_WAKE_FRAMES` | `3` | consecutive 80 ms frames needed |
 | `ASSIST_WAKE_DIR` | `assets/wakeword` | different wake models |

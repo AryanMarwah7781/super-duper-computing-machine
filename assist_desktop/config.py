@@ -6,13 +6,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-def _load_dotenv() -> None:
+DOTENV = Path(__file__).resolve().parent.parent / ".env"
+
+
+def load_dotenv(path: Path = DOTENV) -> None:
     """Read a .env beside the repo, without adding a dependency for it.
 
-    setup.ps1 writes ASSIST_DEVKIT_URL here so a fresh machine does not have to
-    pass --devkit on every run. Real environment variables always win.
+    setup.ps1 writes ASSIST_DEVKIT_URL and ASSIST_TRIGGER_URL here so a fresh
+    machine does not have to pass them on every run. Real environment
+    variables always win.
     """
-    path = Path(__file__).resolve().parent.parent / ".env"
     if not path.is_file():
         return
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -23,7 +26,7 @@ def _load_dotenv() -> None:
         os.environ.setdefault(key.strip(), value.strip())
 
 
-_load_dotenv()
+load_dotenv()
 
 
 # Whatever address the devkit has on your network: .env, ASSIST_DEVKIT_URL, or

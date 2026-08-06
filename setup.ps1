@@ -12,11 +12,13 @@
 .EXAMPLE
   .\setup.ps1
   .\setup.ps1 -Devkit http://192.168.1.50:8090
+  .\setup.ps1 -Trigger http://192.168.1.60:5000/trigger
   .\setup.ps1 -NoVoice          Skip the 60 MB voice download
 #>
 [CmdletBinding()]
 param(
     [string]$Devkit,
+    [string]$Trigger,
     [switch]$NoVoice,
     [switch]$Force
 )

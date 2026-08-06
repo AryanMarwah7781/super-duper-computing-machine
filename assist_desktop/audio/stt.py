@@ -29,6 +29,11 @@ MODEL_SIZE = "base.en"
 # while it is still deciding. This primes the decoder with the machine's own
 # vocabulary, which is what initial_prompt is for.
 VOCABULARY_PROMPT = (
+    # The spoken commands come first and in full. The prompt used to carry
+    # only "Spraying the field", and on 2026-08-06 the decoder still returned
+    # "Start spring." twice -- the phrase the operator actually says was never
+    # in here to bias toward.
+    "Start spraying. Stop spraying. Fold the boom. Unfold the boom. "
     "John Deere R4045 self-propelled sprayer. Spraying the field, solution "
     "tank, fill the solution tank, boom, fold the boom, unfold, nozzle, "
     "nozzles, ExactApply, spray system master switch, rate control, "

@@ -20,6 +20,7 @@ param(
     [switch]$Build,
     [switch]$Sensitive,
     [string]$Devkit = "http://192.168.94.180:8090",
+    [string]$Trigger,
     [string]$BoardPassword = $env:ASSIST_BOARD_PASSWORD
 )
 
@@ -128,9 +129,21 @@ if ($Sensitive) {
     Say  "  sensitive mode: threshold 0.45, 2 frames (more false triggers)" Yellow
 }
 
+# ------------------------------------------------------------------ simulator
+# Spoken orders ("fold the boom") are sent here, not to the devkit. This
+# overrides .env for one run; edit .env to make it stick.
+if ($Trigger) { $env:ASSIST_TRIGGER_URL = $Trigger }
+
 # --------------------------------------------------------------------- start
 Head "Starting"
 Say  "  devkit    $Devkit"
+$shownTrigger = $env:ASSIST_TRIGGER_URL
+if (-not $shownTrigger -and (Test-Path ".env")) {
+    $line = Select-String -Path ".env" -Pattern '^\s*ASSIST_TRIGGER_URL\s*=' -ErrorAction SilentlyContinue
+    if ($line) { $shownTrigger = ($line.Line -split '=', 2)[1].Trim() + "  (.env)" }
+}
+if (-not $shownTrigger) { $shownTrigger = "http://192.168.94.11:5000/trigger  (default)" }
+Say  "  simulator $shownTrigger"
 Say  "  log file  $PSScriptRoot\logs\app.log"
 Say  ""
 Say  "  Ctrl-C here, or closing the window, stops everything." DarkGray

@@ -109,7 +109,21 @@ class VoiceSession:
         return self.status()
 
     def devices(self) -> list[dict]:
-        return list_input_devices()
+        """The microphones Windows can see right now.
+
+        The stream is closed around the scan and reopened after. PortAudio
+        cannot be re-enumerated while a stream is open, and re-enumerating is
+        the only way to notice a microphone plugged in since startup -- so the
+        choice is a momentary gap in listening, or a permanently stale list.
+        """
+        was_running = self._mic.running
+        if was_running:
+            self._mic.stop()
+        try:
+            return list_input_devices()
+        finally:
+            if was_running:
+                self._mic.start()
 
     def set_device(self, index: Optional[int]) -> dict:
         """Switch microphone. Restarts the stream if it is already running,
@@ -117,8 +131,13 @@ class VoiceSession:
         was_running = self._mic.running
         if was_running:
             self.stop()
-        self._mic = Microphone(device=index)
-        log.info("microphone set to device %s", index if index is not None else "default")
+        # Remember what was chosen, not just where it sat. The index is only
+        # meaningful until the next device is plugged in or out.
+        name = next((d["name"] for d in list_input_devices()
+                     if d["index"] == index), None) if index is not None else None
+        self._mic = Microphone(device=index, device_name=name)
+        log.info("microphone set to %s (index %s)", name or "default",
+                 index if index is not None else "-")
         if was_running:
             return self.start()
         return self.status()
@@ -127,6 +146,7 @@ class VoiceSession:
         return {
             "state": self._state.value,
             "device": self._mic.device,
+            "device_name": self._mic.device_name,
             "wake_ready": self._wake.available,
             "stt_ready": self._stt.available,
             "voice_ready": self._speaker.available,

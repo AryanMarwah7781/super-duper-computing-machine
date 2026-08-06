@@ -194,8 +194,13 @@ class Api:
 
     def audio_devices(self) -> dict:
         from .audio.mic import list_input_devices
-        current = self._voice._mic.device if self._voice is not None else None
-        return {"ok": True, "devices": list_input_devices(), "current": current}
+        # Through the session when there is one: it knows to close the stream
+        # around the scan. Enumerating underneath a live stream crashed the
+        # picker with PortAudio -10000.
+        if self._voice is not None:
+            return {"ok": True, "devices": self._voice.devices(),
+                    "current": self._voice._mic.device}
+        return {"ok": True, "devices": list_input_devices(), "current": None}
 
     def set_audio_device(self, index) -> dict:
         try:

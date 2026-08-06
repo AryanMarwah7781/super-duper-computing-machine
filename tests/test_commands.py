@@ -161,3 +161,90 @@ def test_polite_questions_do_not_run(question):
     """...which leaves these: questions that open with a polite-order word.
     They are separated by asking-phrases, not by the first word."""
     assert match(question) is None
+
+
+# -- the simulator's address must be changeable ---------------------------
+
+def test_the_trigger_url_follows_the_environment_at_send_time(monkeypatch):
+    """It used to be read once, when the module was first imported. Since
+    api.py imports commands before anything imports config -- and config is
+    what loads .env -- the address in .env was captured too late and silently
+    ignored. Changing the simulator's IP did nothing."""
+    from assist_desktop import commands as c
+    monkeypatch.setenv("ASSIST_TRIGGER_URL", "http://10.0.0.99:5000/trigger")
+    assert c.trigger_url() == "http://10.0.0.99:5000/trigger"
+
+
+def test_the_trigger_url_has_a_default(monkeypatch):
+    from assist_desktop import commands as c
+    monkeypatch.delenv("ASSIST_TRIGGER_URL", raising=False)
+    assert c.trigger_url().startswith("http://")
+
+
+def test_a_dotenv_trigger_url_reaches_the_command(monkeypatch, tmp_path):
+    """The end-to-end version: what the operator actually edits is .env.
+
+    config is imported before the variable is cleared, because importing it is
+    what reads the real .env -- do it the other way round and this test only
+    proves that the developer's own .env exists.
+    """
+    from assist_desktop import commands as c
+    from assist_desktop.config import load_dotenv
+    monkeypatch.delenv("ASSIST_TRIGGER_URL", raising=False)
+    env = tmp_path / ".env"
+    env.write_text("ASSIST_TRIGGER_URL=http://10.0.0.42:5000/trigger\n",
+                   encoding="utf-8")
+    load_dotenv(env)
+    assert c.trigger_url() == "http://10.0.0.42:5000/trigger"
+
+
+def test_a_real_environment_variable_beats_dotenv(monkeypatch, tmp_path):
+    """.env fills gaps; it does not override what is already set. Otherwise
+    run.ps1 -Trigger could not win over a stale file."""
+    from assist_desktop import commands as c
+    from assist_desktop.config import load_dotenv
+    monkeypatch.setenv("ASSIST_TRIGGER_URL", "http://10.0.0.7:5000/trigger")
+    env = tmp_path / ".env"
+    env.write_text("ASSIST_TRIGGER_URL=http://10.0.0.42:5000/trigger\n",
+                   encoding="utf-8")
+    load_dotenv(env)
+    assert c.trigger_url() == "http://10.0.0.7:5000/trigger"
+
+
+# -- what the microphone actually produced ---------------------------------
+#
+# These are not hypothetical. Every phrase below was produced by Whisper on
+# this machine, for an operator saying an ordinary command, and each one
+# previously fell through to the manual: ten seconds of retrieval ending in
+# "I don't know" while the sprayer did nothing.
+
+@pytest.mark.parametrize("heard,expected", [
+    ("Start spring.", "start_spraying"),          # logged 17:16:41, 17:17:18
+    ("start spinning", "start_spraying"),         # recorded in stt.py
+    ("start speaking", "start_spraying"),         # recorded in stt.py
+    ("start solution bump", "start_spraying"),    # from the old tools.py
+    ("start solution dump", "start_spraying"),
+    ("start solution hump", "start_spraying"),
+    ("stop spring", "stop_spraying"),
+    ("stop spinning", "stop_spraying"),
+])
+def test_known_mishearings_still_reach_the_command(heard, expected):
+    """stt.py already primes Whisper with the machine's vocabulary, and it is
+    still wrong on these. Biasing the decoder is the first line of defence,
+    not the only one."""
+    assert match(heard) == expected
+
+
+def test_a_misheard_question_is_still_a_question():
+    """The mishearing table must not out-rank the question guard, or asking
+    'how do i start spraying' starts the sprayer when it is misheard."""
+    assert match("how do i start spring") is None
+    assert match("can you tell me how to start spinning") is None
+
+
+def test_mishearings_do_not_swallow_unrelated_speech():
+    """'spring' has an ordinary meaning. Only the command-shaped phrases are
+    repaired, never the bare word."""
+    assert match("spring") is None
+    assert match("check the spring tension") is None
+    assert match("is it spring") is None

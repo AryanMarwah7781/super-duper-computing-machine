@@ -44,7 +44,13 @@ from ..logs import get as get_logger
 
 log = get_logger("wake")
 
-DEFAULT_MODEL_DIR = Path(r"C:\Users\user\Desktop\jd\wakeword")
+# The three wake models ship in the repo — 3.7 MB total, and the application
+# cannot listen without them, so a clone has to include them. Point
+# ASSIST_WAKE_DIR at a different set to override.
+DEFAULT_MODEL_DIR = Path(
+    os.environ.get("ASSIST_WAKE_DIR")
+    or Path(__file__).resolve().parent.parent.parent / "assets" / "wakeword"
+)
 
 # Tunable without editing code:
 #   $env:ASSIST_WAKE_THRESHOLD = "0.5"

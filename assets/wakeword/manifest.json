@@ -1,0 +1,107 @@
+{
+  "embedding_model.onnx": {
+    "size_kb": 1295.5,
+    "ir_version": 7,
+    "opset": {
+      "ai.onnx": 13,
+      "ai.onnx.ml": 2
+    },
+    "inputs": {
+      "input_1": [
+        "unk__314",
+        76,
+        32,
+        1
+      ]
+    },
+    "outputs": {
+      "conv2d_19": [
+        "unk__315",
+        1,
+        1,
+        96
+      ]
+    },
+    "ops": [
+      "Conv",
+      "LeakyRelu",
+      "Max",
+      "MaxPool",
+      "Reshape"
+    ],
+    "external_data": []
+  },
+  "hey_chris.onnx": {
+    "size_kb": 1367.2,
+    "ir_version": 7,
+    "opset": {
+      "ai.onnx": 13
+    },
+    "inputs": {
+      "input": [
+        1,
+        27,
+        96
+      ]
+    },
+    "outputs": {
+      "output": [
+        1,
+        1
+      ]
+    },
+    "ops": [
+      "Add",
+      "Constant",
+      "Div",
+      "Flatten",
+      "Gemm",
+      "Mul",
+      "Pow",
+      "ReduceMean",
+      "Relu",
+      "Sigmoid",
+      "Sqrt",
+      "Sub"
+    ],
+    "external_data": []
+  },
+  "melspectrogram.onnx": {
+    "size_kb": 1062.5,
+    "ir_version": 7,
+    "opset": {
+      "ai.onnx": 13
+    },
+    "inputs": {
+      "input": [
+        "batch_size",
+        "samples"
+      ]
+    },
+    "outputs": {
+      "output": [
+        "time",
+        1,
+        "Clipoutput_dim_2",
+        32
+      ]
+    },
+    "ops": [
+      "Add",
+      "Cast",
+      "Clip",
+      "Constant",
+      "Conv",
+      "Div",
+      "Log",
+      "MatMul",
+      "Mul",
+      "Pow",
+      "ReduceMax",
+      "Sub",
+      "Transpose",
+      "Unsqueeze"
+    ],
+    "external_data": []
+  }
+}

@@ -16,6 +16,7 @@ queue of stale audio.
 """
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from typing import Callable, Optional, Sequence
@@ -26,7 +27,13 @@ from ..logs import get as get_logger
 
 log = get_logger("speak")
 
-DEFAULT_VOICE = Path(r"C:\Users\user\Desktop\piper\en_US-lessac-medium.onnx")
+# The Piper voice is 60 MB and freely downloadable, so setup.ps1 fetches it
+# rather than the repo carrying it. Point ASSIST_VOICE elsewhere to override.
+DEFAULT_VOICE = Path(
+    os.environ.get("ASSIST_VOICE")
+    or Path(__file__).resolve().parent.parent.parent
+    / "assets" / "voice" / "en_US-lessac-medium.onnx"
+)
 
 # Photo markers and JD part codes must never be read aloud — one cost ~4.6s of
 # a voice spelling out a part number letter by letter. The devkit already

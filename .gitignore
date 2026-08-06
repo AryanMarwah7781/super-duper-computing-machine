@@ -17,3 +17,6 @@ data/cma_baseline.txt
 .cache/
 
 logs/
+
+# the speech voice is 60 MB and downloadable; setup.ps1 fetches it
+assets/voice/

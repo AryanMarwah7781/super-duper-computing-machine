@@ -107,7 +107,8 @@ def check_local() -> list[Check]:
 
     # Wake word needs all three stages, not just the classifier — the mel and
     # embedding models are what actually make it runnable.
-    wake = REPO.parent / "wakeword"
+    wake = Path(os.environ.get("ASSIST_WAKE_DIR")
+                or REPO / "assets" / "wakeword")
     need = ["hey_chris.onnx", "melspectrogram.onnx", "embedding_model.onnx"]
     have = [f for f in need if (wake / f).is_file()]
     if len(have) == len(need):
@@ -118,9 +119,11 @@ def check_local() -> list[Check]:
     else:
         out.append(Check(g, "wake word (hey_chris)", MISSING, f"nothing in {wake}"))
 
-    piper = Path(r"C:\Users\user\Desktop\piper\en_US-lessac-medium.onnx")
-    out.append(Check(g, "piper voice (TTS)", OK if piper.is_file() else WARN,
-                     str(piper) if piper.is_file() else "phase 2 only"))
+    piper = Path(os.environ.get("ASSIST_VOICE")
+                 or REPO / "assets" / "voice" / "en_US-lessac-medium.onnx")
+    out.append(Check(g, "piper voice (speech)", OK if piper.is_file() else WARN,
+                     str(piper) if piper.is_file()
+                     else "run setup.ps1 to fetch it — answers will not be spoken"))
 
     fixtures = REPO / "fixtures" / "procedure.json"
     out.append(Check(g, "fixtures / fake devkit", OK if fixtures.is_file() else MISSING,

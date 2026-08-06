@@ -59,6 +59,42 @@ describe("parseDisplayText", () => {
     expect(parseDisplayText("Step 1: A.\n\n\nStep 2: B.", [])).toHaveLength(2)
   })
 
+  it("rejoins a step that the corpus wrapped mid-sentence", () => {
+    // Seen on screen: step 2 rendered as two separate paragraphs.
+    const text =
+      "Step 2: Fill the tank about half full with clean, clear water, or\n" +
+      "other base liquid.\n" +
+      "Step 3: Add the chemical concentrate."
+    const nodes = parseDisplayText(text, [])
+    expect(nodes).toHaveLength(2)
+    expect(nodes[0]).toEqual({
+      kind: "step",
+      num: "2",
+      text: "Fill the tank about half full with clean, clear water, or other base liquid.",
+    })
+  })
+
+  it("does not swallow a following safety line into the step", () => {
+    const nodes = parseDisplayText(
+      "Step 1: Park the machine.\n**CAUTION:** Do not overfill.",
+      [],
+    )
+    expect(nodes.map((n) => n.kind)).toEqual(["step", "safety"])
+  })
+
+  it("does not swallow a following photo marker into the step", () => {
+    const nodes = parseDisplayText(
+      "Step 1: Open the lid.\n[PHOTO: N99948—UN—17SEP12]",
+      [],
+    )
+    expect(nodes.map((n) => n.kind)).toEqual(["step", "photo"])
+  })
+
+  it("leaves prose before any step as its own paragraph", () => {
+    const nodes = parseDisplayText("Here's how:\nStep 1: Go.", [])
+    expect(nodes.map((n) => n.kind)).toEqual(["text", "step"])
+  })
+
   it("parses the full procedure fixture in order, safety first", () => {
     const text = [
       "**WARNING:** Keep bystanders clear of the machine while filling.",

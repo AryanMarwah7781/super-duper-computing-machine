@@ -1,4 +1,12 @@
 import { Button } from "@/components/ui/button"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 
 /**
  * Lesson Plan and the simulator guide have no content behind them yet. This
@@ -18,17 +26,25 @@ export function PlaceholderScreen({
   onHome: () => void
 }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-      <Art className="h-56 text-primary" />
-      <h1 className="mt-6 text-3xl font-semibold tracking-tight">{title}</h1>
-      <p className="mt-3 max-w-lg text-lg text-muted-foreground">{blurb}</p>
-      <p className="mt-6 max-w-md text-sm text-muted-foreground">
-        No content is wired up here yet — the screen and its navigation are
-        ready for it.
-      </p>
-      <Button variant="outline" className="mt-8" onClick={onHome}>
-        Back to the menu
-      </Button>
+    <div className="flex h-full items-center justify-center px-8">
+      <Empty className="max-w-xl">
+        <EmptyHeader>
+          <EmptyMedia>
+            <Art className="h-48 text-primary" />
+          </EmptyMedia>
+          <EmptyTitle className="text-3xl">{title}</EmptyTitle>
+          <EmptyDescription className="text-lg">{blurb}</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <p className="text-sm text-muted-foreground">
+            No content is wired up here yet — the screen and its navigation are
+            ready for it.
+          </p>
+          <Button variant="outline" className="mt-4" onClick={onHome}>
+            Back to the menu
+          </Button>
+        </EmptyContent>
+      </Empty>
     </div>
   )
 }

@@ -55,8 +55,11 @@
     --card-foreground: oklch(0.145 0 0);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
+    /* #004884 — sampled from the supplied L&T Technology Services logo, not
+       eyeballed. It is the single ink colour in that file. */
+    --primary: #004884;
     --primary-foreground: oklch(0.985 0 0);
+    --ring: #004884;
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
     --muted: oklch(0.97 0 0);
@@ -90,8 +93,11 @@
     --card-foreground: oklch(0.985 0 0);
     --popover: oklch(0.205 0 0);
     --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
+    /* A lighter tint of the brand blue: #004884 on a dark surface fails
+       contrast for button text. Derived from the brand colour, not a new one. */
+    --primary: #4A93D9;
+    --primary-foreground: oklch(0.145 0 0);
+    --ring: #4A93D9;
     --secondary: oklch(0.269 0 0);
     --secondary-foreground: oklch(0.985 0 0);
     --muted: oklch(0.269 0 0);

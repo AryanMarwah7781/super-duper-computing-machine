@@ -46,8 +46,10 @@ describe("ChatScreen", () => {
 
   it("shows the collaboration credit on the empty state", () => {
     render(<ChatScreen {...BASE} messages={[]} />)
+    // The L&T half is the supplied logo artwork, not type.
     expect(screen.getByText("L&T")).toBeDefined()
     expect(screen.getByText("CNH")).toBeDefined()
+    expect(screen.getByText(/collaboration/i)).toBeDefined()
   })
 
   it("keeps the question on screen next to its answer", () => {

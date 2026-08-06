@@ -3,7 +3,7 @@ import type { ChatMessage } from "@/hooks/useAssist"
 import type { ConnectionState, HistoryEntry } from "@/lib/bridge"
 import { AnswerView } from "./AnswerView"
 import { AskBar } from "./AskBar"
-import { CollaborationMark } from "./CollaborationMark"
+import { CollaborationMark } from "./Brand"
 import { HistorySidebar } from "./HistorySidebar"
 import { FarmingHeroArt } from "./art/TileArt"
 

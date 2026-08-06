@@ -3,7 +3,7 @@ import { UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { listUsers, login, type UserDto } from "@/lib/bridge"
-import { CollaborationMark } from "./CollaborationMark"
+import { CollaborationMark, LttsLogo } from "./Brand"
 
 function initials(name: string): string {
   return name
@@ -34,6 +34,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (u: UserDto) => void }
   return (
     <div className="flex h-full flex-col items-center justify-center px-6">
       <div className="w-full max-w-xl">
+        <LttsLogo className="mx-auto mb-10 h-20 w-auto" />
         <h1 className="text-center text-4xl font-semibold tracking-tight">
           Welcome
         </h1>

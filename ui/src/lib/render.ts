@@ -52,6 +52,19 @@ export function parseDisplayText(
 ): Node[] {
   const nodes: Node[] = []
 
+  /**
+   * The corpus wraps mid-sentence, so a step's text arrives across several
+   * lines. Without this, "Fill the tank about half full with clean, clear
+   * water, or" and "other base liquid." render as two separate paragraphs and
+   * the step looks broken. A plain line following a step belongs to that step.
+   */
+  const continueLastStep = (text: string): boolean => {
+    const last = nodes[nodes.length - 1]
+    if (!last || last.kind !== "step") return false
+    last.text = `${last.text} ${text}`.replace(/\s+/g, " ").trim()
+    return true
+  }
+
   for (const raw of displayText.split("\n")) {
     const line = raw.trim()
     if (!line) continue
@@ -98,7 +111,9 @@ export function parseDisplayText(
       continue
     }
 
-    nodes.push({ kind: "text", text: line })
+    if (!continueLastStep(line)) {
+      nodes.push({ kind: "text", text: line })
+    }
   }
 
   return nodes

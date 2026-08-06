@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowRight, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { UserDto } from "@/lib/bridge"
+import { LttsLogo } from "./Brand"
 
 export function NavBar({
   user,
@@ -43,6 +44,10 @@ export function NavBar({
       </Button>
 
       <span className="ml-2 text-lg font-medium">{title}</span>
+
+      {/* The brand rides in the chrome, so it is present on every screen
+          without competing with the answer. */}
+      <LttsLogo className="ml-6 hidden h-9 w-auto opacity-90 sm:block" />
 
       {user && (
         <div className="ml-auto flex items-center gap-3">

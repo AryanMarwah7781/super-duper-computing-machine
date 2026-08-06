@@ -4,6 +4,7 @@ import { HomeScreen } from "@/components/HomeScreen"
 import { LoginScreen } from "@/components/LoginScreen"
 import { NavBar } from "@/components/NavBar"
 import { PlaceholderScreen } from "@/components/PlaceholderScreen"
+import { SplashScreen } from "@/components/SplashScreen"
 import { StatusStrip } from "@/components/StatusStrip"
 import { LessonPlanArt, SimulatorArt } from "@/components/art/TileArt"
 import { useAssist } from "@/hooks/useAssist"
@@ -24,6 +25,7 @@ export default function App() {
   const nav = useNavigation("login")
   const [user, setUser] = useState<UserDto | null>(null)
   const [entries, setEntries] = useState<HistoryEntry[]>([])
+  const [booting, setBooting] = useState(true)
 
   const refreshHistory = useCallback(async (userId: string) => {
     setEntries(await history(userId))
@@ -58,6 +60,14 @@ export default function App() {
     lastAnswer && lastAnswer.role === "assistant"
       ? lastAnswer.turn?.timing?.total_ms
       : undefined
+
+  if (booting) {
+    return (
+      <div className="h-screen bg-background text-foreground">
+        <SplashScreen onDone={() => setBooting(false)} />
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">

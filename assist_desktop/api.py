@@ -129,6 +129,14 @@ class Api:
         answer is pushed as an event — nobody is awaiting a promise for it."""
         result = self.ask(text, source="voice", user_id=self._active_user)
         self._emit("answer", {"query": text, **result})
+        # Asked by voice, answered by voice.
+        turn = result.get("turn") or {}
+        answer = turn.get("answer") or {}
+        segments = answer.get("spoken_segments") or []
+        if segments and self._voice is not None:
+            self._voice.say(segments)
+        elif turn.get("plan", {}).get("kind") == "oos" and self._voice is not None:
+            self._voice.say(["I don't know. Nothing in the manual matched that."])
 
     def _voice_session(self):
         if self._voice is None:
@@ -165,6 +173,18 @@ class Api:
         except Exception as e:
             log.exception("could not switch microphone")
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    def speak(self, segments) -> dict:
+        try:
+            ok = self._voice_session().say(list(segments or []))
+            return {"ok": bool(ok)}
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    def stop_speaking(self) -> dict:
+        if self._voice is not None:
+            self._voice.hush()
+        return {"ok": True}
 
     def voice_status(self) -> dict:
         if self._voice is None:

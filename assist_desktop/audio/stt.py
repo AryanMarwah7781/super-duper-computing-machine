@@ -21,6 +21,21 @@ import numpy as np
 from .mic import SAMPLE_RATE
 
 MODEL_SIZE = "base.en"
+
+# Whisper decodes toward ordinary English, which is wrong here: it produced
+# "start spinning" and "start speaking" for "start spraying", and "feel the
+# solution back" for "fill the solution tank". Those are all common words, so
+# no amount of after-the-fact repair recovers them — the fix has to happen
+# while it is still deciding. This primes the decoder with the machine's own
+# vocabulary, which is what initial_prompt is for.
+VOCABULARY_PROMPT = (
+    "John Deere R4045 self-propelled sprayer. Spraying the field, solution "
+    "tank, fill the solution tank, boom, fold the boom, unfold, nozzle, "
+    "nozzles, ExactApply, spray system master switch, rate control, "
+    "raise lower switch, rinse tank, product pump, agitation, transport "
+    "position, engine oil, tire inflation pressure, hydraulic, PTO, "
+    "operator station, CommandArm, display, calibration."
+)
 MAX_UTTERANCE_S = 12.0        # hard stop, so a stuck stream cannot record forever
 MIN_UTTERANCE_S = 0.4         # shorter than this is a cough, not a question
 SILENCE_TO_END_S = 0.8        # quiet for this long means they finished
@@ -154,5 +169,6 @@ class Transcriber:
             segments, _ = self._model.transcribe(
                 samples, language="en", beam_size=1,
                 condition_on_previous_text=False,
+                initial_prompt=VOCABULARY_PROMPT,
             )
             return " ".join(s.text.strip() for s in segments).strip()

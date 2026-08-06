@@ -193,6 +193,10 @@ export async function setAudioDevice(index: number | null): Promise<void> {
   await bridge()?.set_audio_device(index)
 }
 
+export async function stopSpeaking(): Promise<void> {
+  await bridge()?.stop_speaking()
+}
+
 export async function setActiveUser(userId: string): Promise<void> {
   await bridge()?.set_active_user(userId)
 }

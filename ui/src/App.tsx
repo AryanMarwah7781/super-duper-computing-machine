@@ -36,6 +36,7 @@ export default function App() {
     busy,
     voice,
     level,
+    speaking,
     ask,
     appendHistory,
     clearConversation,
@@ -156,7 +157,7 @@ export default function App() {
           voice={
             <>
               <VoiceIndicator state={voice} level={level} />
-              <VoiceSettings state={voice} />
+              <VoiceSettings state={voice} speaking={speaking} />
             </>
           }
         />

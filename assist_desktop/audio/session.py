@@ -27,6 +27,7 @@ import numpy as np
 
 from ..logs import get as get_logger
 from .mic import Microphone, list_input_devices, rms_level
+from .speak import Speaker
 from .stt import Endpointer, Transcriber, Utterance
 from .wake import Detection, WakeWord
 
@@ -54,6 +55,7 @@ class VoiceSession:
         self._wake = WakeWord(model_dir=wake_model_dir or WakeWord.__init__.__defaults__[0],
                               on_detect=self._on_wake)
         self._stt = Transcriber()
+        self._speaker = Speaker(on_state=self._emit)
         self._endpointer: Optional[Endpointer] = None
         self._state = VoiceState.OFF
         self._lock = threading.Lock()
@@ -81,9 +83,10 @@ class VoiceSession:
             self._set_state(VoiceState.OFF, error=self.error)
             return self.status()
 
-        # Whisper loads lazily on a thread: it is the slowest part and the wake
-        # word should be live immediately.
+        # Whisper and the voice both load lazily: they are the slow parts and
+        # the wake word should be live immediately.
         threading.Thread(target=self._stt.load, daemon=True).start()
+        threading.Thread(target=self._speaker.load, daemon=True).start()
 
         if not self._mic.start():
             log.error("microphone failed to open: %s", self._mic.error)
@@ -126,6 +129,8 @@ class VoiceSession:
             "device": self._mic.device,
             "wake_ready": self._wake.available,
             "stt_ready": self._stt.available,
+            "voice_ready": self._speaker.available,
+            "speaking": self._speaker.speaking,
             "mic_running": self._mic.running,
             "error": self.error or self._wake.error or self._stt.error,
         }
@@ -165,7 +170,16 @@ class VoiceSession:
                 self._wake.unmute()
                 self._set_state(VoiceState.IDLE)
 
+    def say(self, segments) -> bool:
+        """Read an answer aloud."""
+        return self._speaker.speak(segments)
+
+    def hush(self) -> None:
+        self._speaker.stop()
+
     def _on_wake(self, hit: Detection) -> None:
+        # A new question outranks the answer to the last one.
+        self._speaker.stop()
         with self._lock:
             if self._state is not VoiceState.IDLE:
                 return

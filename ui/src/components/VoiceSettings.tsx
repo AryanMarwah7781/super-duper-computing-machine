@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react"
-import { Mic, MicOff, Settings2 } from "lucide-react"
+import { Mic, MicOff, Settings2, VolumeX } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   audioDevices,
   setAudioDevice,
   startVoice,
+  stopSpeaking,
   stopVoice,
   type AudioDevice,
 } from "@/lib/bridge"
@@ -17,7 +18,13 @@ import type { VoiceState } from "@/hooks/useAssist"
  * changed underneath an open one — so the list is only useful if picking from
  * it actually takes effect immediately, which it does.
  */
-export function VoiceSettings({ state }: { state: VoiceState }) {
+export function VoiceSettings({
+  state,
+  speaking = false,
+}: {
+  state: VoiceState
+  speaking?: boolean
+}) {
   const [open, setOpen] = useState(false)
   const [devices, setDevices] = useState<AudioDevice[]>([])
   const [current, setCurrent] = useState<number | null>(null)
@@ -48,7 +55,20 @@ export function VoiceSettings({ state }: { state: VoiceState }) {
   }
 
   return (
-    <span className="relative">
+    <span className="relative flex items-center gap-1">
+      {/* Only while it is talking: an operator who wants quiet should not have
+          to open a menu to get it. */}
+      {speaking && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2 text-xs"
+          onClick={() => void stopSpeaking()}
+        >
+          <VolumeX className="size-3.5" />
+          stop
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="sm"

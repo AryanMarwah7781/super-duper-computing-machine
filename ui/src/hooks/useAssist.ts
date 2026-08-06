@@ -36,6 +36,7 @@ export function useAssist() {
   const [busy, setBusy] = useState(false)
   const [voice, setVoice] = useState<VoiceState>("off")
   const [level, setLevel] = useState(0)
+  const [speaking, setSpeaking] = useState(false)
   const nextId = useRef(1)
 
   const push = useCallback((m: NewMessage) => {
@@ -55,6 +56,8 @@ export function useAssist() {
     const offLevel = onEvent("voice_level", (d) => {
       setLevel((d as { level: number }).level)
     })
+    const offSpeakStart = onEvent("speaking", () => setSpeaking(true))
+    const offSpeakEnd = onEvent("spoken", () => setSpeaking(false))
     // A spoken question is asked by the audio thread, so its answer arrives as
     // an event rather than a resolved promise. Land both halves in the
     // conversation so voice and typing produce an identical transcript.
@@ -67,6 +70,8 @@ export function useAssist() {
       offConnection()
       offVoice()
       offLevel()
+      offSpeakStart()
+      offSpeakEnd()
       offAnswer()
     }
   }, [push])
@@ -110,6 +115,7 @@ export function useAssist() {
     busy,
     voice,
     level,
+    speaking,
     ask,
     appendHistory,
     clearConversation,

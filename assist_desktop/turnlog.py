@@ -43,6 +43,24 @@ class TurnLog:
             "timing": turn.timing,
         })
 
+    def append_command(self, query: str, name: str, ok: bool, detail: str,
+                       source: str) -> None:
+        """Commands are logged whether or not they worked. This is the only
+        thing the app does that moves machinery, so "did it actually fire?"
+        must be answerable after the fact — not just when it errored."""
+        self._write({
+            "ts": self._now(),
+            "query": query,
+            "source": source,
+            "kind": "command",
+            "command": name,
+            "ok": ok,
+            "reason": detail,
+            "chunk_ids": [],
+            "candidates": [],
+            "timing": {},
+        })
+
     def append_error(self, query: str, detail: str, source: str) -> None:
         self._write({
             "ts": self._now(),

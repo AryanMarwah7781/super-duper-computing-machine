@@ -114,3 +114,59 @@ def test_oos_is_ok_but_has_no_answer(api):
     assert result["ok"] is True
     assert result["turn"]["plan"]["kind"] == "oos"
     assert result["turn"]["answer"] is None
+
+
+# -- commands act instead of searching ------------------------------------
+
+def test_an_order_runs_the_command_and_never_reaches_the_manual(api, monkeypatch):
+    sent: list[str] = []
+    monkeypatch.setattr("assist_desktop.commands._send",
+                        lambda p: (sent.append(p) or (True, "")))
+    result = api.ask("fold the boom")
+    assert result["ok"] is True
+    assert result["turn"]["plan"]["kind"] == "command"
+    assert sent == ["Fold the Boom"]
+    assert result["turn"]["timing"]["total_ms"] == 0, "no retrieval happened"
+
+
+def test_asking_how_still_searches_the_manual(api, monkeypatch):
+    sent: list[str] = []
+    monkeypatch.setattr("assist_desktop.commands._send",
+                        lambda p: (sent.append(p) or (True, "")))
+    result = api.ask("how do i fold the boom")
+    assert result["turn"]["plan"]["kind"] != "command"
+    assert sent == [], "a question must not touch the machine"
+
+
+def test_a_command_is_spoken_and_recorded(api, monkeypatch):
+    monkeypatch.setattr("assist_desktop.commands._send", lambda p: (True, ""))
+    api.login("Aryan")
+    api.ask("start spraying", user_id="aryan")
+    entries = api.history("aryan")["entries"]
+    assert entries[0]["kind"] == "command"
+    assert entries[0]["turn"]["answer"]["spoken_segments"]
+
+
+def test_an_unreachable_simulator_is_reported_not_claimed(api, monkeypatch):
+    monkeypatch.setattr("assist_desktop.commands._send",
+                        lambda p: (False, "ConnectError: refused"))
+    result = api.ask("unfold the boom")
+    text = result["turn"]["answer"]["display_text"].lower()
+    assert "not" in text, "must not claim the boom moved"
+
+
+def test_every_command_is_logged_whether_or_not_it_worked(api, tmp_path,
+                                                          monkeypatch):
+    """The one thing this app does that moves machinery. Whether it fired has
+    to be answerable afterwards, not only when it raised."""
+    import json
+    monkeypatch.setattr("assist_desktop.commands._send", lambda p: (True, ""))
+    api.ask("fold the boom")
+    monkeypatch.setattr("assist_desktop.commands._send",
+                        lambda p: (False, "ConnectError: refused"))
+    api.ask("unfold the boom")
+    lines = [json.loads(l) for l in
+             (tmp_path / "turns.jsonl").read_text(encoding="utf-8").splitlines()]
+    commands = [l for l in lines if l["kind"] == "command"]
+    assert [(c["command"], c["ok"]) for c in commands] == [
+        ("fold_boom", True), ("unfold_boom", False)]

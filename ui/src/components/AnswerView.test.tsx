@@ -77,3 +77,38 @@ describe("AnswerView", () => {
     expect(container.textContent?.trim()).toBe("")
   })
 })
+
+describe("commands", () => {
+  const command = (text: string, reason: string): TurnDto => ({
+    plan: { kind: "command", chunk_ids: [], reason },
+    answer: {
+      display_text: text,
+      spoken_segments: [text],
+      safety: [],
+      citations: [],
+      images: [],
+      render_version: "command",
+      source_hash: "",
+    },
+    candidates: [],
+    timing: { total_ms: 0 },
+  })
+
+  it("shows a completed command as an action, not an answer", () => {
+    render(<AnswerView turn={command("Folding the boom.", "fold_boom ok")} />)
+    expect(screen.getByText("Folding the boom.")).toBeDefined()
+  })
+
+  it("distinguishes a failed command from a successful one", () => {
+    const { container: good } = render(
+      <AnswerView turn={command("Folding the boom.", "fold_boom ok")} />,
+    )
+    const { container: bad } = render(
+      <AnswerView
+        turn={command("I could not reach the machine.", "fold_boom FAILED")}
+      />,
+    )
+    expect(good.innerHTML).not.toEqual(bad.innerHTML)
+    expect(bad.innerHTML).toContain("destructive")
+  })
+})

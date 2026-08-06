@@ -11,6 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Optional
 
+from . import commands
 from .client.health import ConnectionState, HealthMonitor
 from .logs import get as get_logger
 from .client.transport import StaleResponse, Transport, TransportError
@@ -21,6 +22,23 @@ from .users import UserStore
 
 Emit = Callable[[str, dict], None]
 log = get_logger("api")
+
+
+def _command_turn(result: "commands.CommandResult") -> dict:
+    """Dress a command result as a turn, so it flows through history, the
+    conversation and speech exactly like an answer does."""
+    return {
+        "plan": {"kind": "command", "chunk_ids": [],
+                 "reason": f"{result.name} {'ok' if result.ok else 'FAILED'}"},
+        "answer": {
+            "display_text": result.spoken,
+            "spoken_segments": [result.spoken],
+            "safety": [], "citations": [], "images": [],
+            "render_version": "command", "source_hash": "",
+        },
+        "candidates": [],
+        "timing": {"search_ms": 0, "render_ms": 0, "total_ms": 0},
+    }
 
 
 def _turn_to_dict(turn: Turn) -> dict:
@@ -75,6 +93,19 @@ class Api:
         if not query:
             return {"ok": False, "turn": None, "error": "empty question"}
         log.info("ask (%s) %r", source, query)
+
+        # Commands act; questions get answered. "fold the boom" folds it,
+        # "how do i fold the boom" explains it. See commands.py for how the
+        # two are told apart.
+        done = commands.match_and_execute(query)
+        if done is not None:
+            payload = _command_turn(done)
+            self._log.append_command(query, done.name, done.ok, done.detail,
+                                     source=source)
+            if user_id:
+                self._users.record(user_id, query, "command", source, turn=payload)
+            return {"ok": True, "turn": payload, "error": None}
+
         try:
             turn = self._transport.ask(query, top_k=self._config.top_k)
         except StaleResponse:

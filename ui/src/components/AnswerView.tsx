@@ -1,3 +1,4 @@
+import { CheckCircle2, TriangleAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { TurnDto } from "@/lib/bridge"
@@ -14,6 +15,33 @@ export function AnswerView({
   onAsk?: (query: string) => void
 }) {
   if (!turn) return <div />
+
+  // A command acted on the machine. It is not a manual answer and must not
+  // look like one: the operator needs to know at a glance whether something
+  // physically happened.
+  if (turn.plan.kind === "command" && turn.answer) {
+    const worked = !turn.plan.reason.includes("FAILED")
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-6">
+        <div
+          className={`flex items-center gap-3 rounded-xl border-l-4 px-5 py-4 ${
+            worked
+              ? "border-l-green-600 bg-green-50 dark:bg-green-950/40"
+              : "border-l-destructive bg-red-50 dark:bg-red-950/40"
+          }`}
+        >
+          {worked ? (
+            <CheckCircle2 className="size-6 shrink-0 text-green-600" />
+          ) : (
+            <TriangleAlert className="size-6 shrink-0 text-destructive" />
+          )}
+          <span className="text-lg font-medium">
+            {turn.answer.display_text}
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   // Nothing matched. Say so plainly — confidently wrong is worse than silent,
   // especially for someone standing next to a machine.

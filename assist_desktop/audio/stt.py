@@ -58,6 +58,13 @@ class Endpointer:
         # "utterance" carrying the previous one's speech total.
         self._done = False
 
+    @property
+    def done(self) -> bool:
+        """True once this utterance has ended — including when it was too short
+        to return. The caller must know either way, or it waits forever for an
+        utterance that will never arrive."""
+        return self._done
+
     @staticmethod
     def _energy(frame: np.ndarray) -> float:
         return float(np.sqrt(np.mean(np.square(frame.astype(np.float32)))))

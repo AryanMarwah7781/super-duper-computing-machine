@@ -36,6 +36,7 @@ class VoiceState(str, Enum):
     IDLE = "idle"                  # listening for the wake word
     LISTENING = "listening"        # recording a question
     TRANSCRIBING = "transcribing"  # turning it into text
+    ASKING = "asking"              # waiting on the manual; wake stays muted
 
 
 Emit = Callable[[str, dict], None]
@@ -154,6 +155,15 @@ class VoiceSession:
                 self._set_state(VoiceState.TRANSCRIBING)
                 threading.Thread(target=self._transcribe, args=(utterance,),
                                  daemon=True).start()
+            elif endpointer.done:
+                # It ended but there was too little speech to transcribe. Say so
+                # and go back to idle: without this the session sits in
+                # LISTENING forever, because a finished endpointer returns
+                # nothing on every later frame.
+                log.info("nothing to transcribe, back to idle")
+                self._endpointer = None
+                self._wake.unmute()
+                self._set_state(VoiceState.IDLE)
 
     def _on_wake(self, hit: Detection) -> None:
         with self._lock:
@@ -174,21 +184,26 @@ class VoiceSession:
             text = self._stt.transcribe(utterance.audio)
         except Exception as e:
             self.error = f"{type(e).__name__}: {e}"
-        finally:
-            self._wake.unmute()
 
         text = (text or "").strip()
         log.info("heard %.1fs (%s) -> %r", utterance.seconds,
                  utterance.ended_on, text)
-        if len(text) < 3:
-            log.info("  too short to ask, ignoring")
         self._emit("transcript", {"text": text, "seconds": round(utterance.seconds, 2),
                                   "ended_on": utterance.ended_on})
-        self._set_state(VoiceState.IDLE)
 
-        # Whisper hallucinates short filler on near-silence; do not ask it.
-        if len(text) >= 3:
-            try:
-                self._ask(text)
-            except Exception:
-                pass
+        try:
+            # Whisper hallucinates short filler on near-silence; do not ask it.
+            if len(text) >= 3:
+                self._set_state(VoiceState.ASKING)
+                try:
+                    self._ask(text)
+                except Exception:
+                    log.exception("asking failed")
+            else:
+                log.info("  too short to ask, ignoring")
+        finally:
+            # Unmute LAST. Answering takes about ten seconds, and the gate was
+            # live throughout it — so a stray "hey chris" fired mid-answer and
+            # left the session listening to nobody.
+            self._wake.unmute()
+            self._set_state(VoiceState.IDLE)

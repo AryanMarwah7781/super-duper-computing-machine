@@ -2,48 +2,37 @@ import { lazy, Suspense } from "react"
 import { Mic } from "lucide-react"
 import type { VoiceState } from "@/hooks/useAssist"
 
-// Both are WebGL/canvas effects; keep them out of the main chunk so the window
-// paints before they arrive.
-const Strands = lazy(() => import("./Strands"))
+// A canvas effect; keep it out of the main chunk so the window paints first.
 const BorderGlow = lazy(() => import("./BorderGlow"))
 
-// Brand blue and a lighter tint of it — the strands should read as this
-// product, not as a generic demo.
-const BRAND_STRANDS = ["#004884", "#2E7CC4", "#4A93D9", "#8FC1EA"]
-
 /**
- * What the microphone is doing, at full size, in the conversation.
+ * Bars driven by the real microphone level.
  *
- * The strands move continuously while listening, and the level meter is driven
- * by real audio — together they answer the question an operator actually has
- * mid-sentence: "is this thing hearing me?" A static graphic cannot.
+ * Deliberately plain: the point is to answer "is this hearing me?" while the
+ * operator is mid-sentence, and bars that move with their voice do that better
+ * than an ambient effect. Silence must look like silence.
  */
 export function ListeningStage({ level }: { level: number }) {
+  const bars = [0.55, 0.8, 1, 0.85, 0.6, 0.9, 0.7]
   return (
-    <div className="relative mx-auto my-6 h-44 max-w-3xl overflow-hidden rounded-2xl border bg-card">
-      <Suspense fallback={<div className="h-full w-full bg-muted/30" />}>
-        <Strands
-          colors={BRAND_STRANDS}
-          count={4}
-          // Louder speech makes the strands livelier, so the animation is
-          // reporting the microphone rather than merely decorating it.
-          speed={0.4 + level * 1.6}
-          amplitude={0.7 + level * 1.4}
-          intensity={0.5 + level * 0.5}
-          thickness={0.6}
-          className="absolute inset-0"
-        />
-      </Suspense>
-
-      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-        <span className="flex items-center gap-2 text-lg font-medium text-foreground">
-          <Mic className="size-5 animate-pulse text-primary" />
-          Listening…
-        </span>
-        <span className="mt-1 text-sm text-muted-foreground">
-          Ask your question, then pause.
-        </span>
-      </div>
+    <div className="mx-auto my-6 flex max-w-3xl flex-col items-center gap-4
+                    rounded-2xl border bg-card px-6 py-8">
+      <span className="flex h-14 items-end gap-1.5">
+        {bars.map((weight, i) => (
+          <span
+            key={i}
+            className="w-2 rounded-full bg-primary transition-[height] duration-75"
+            style={{ height: `${Math.max(6, Math.min(56, level * 150 * weight))}px` }}
+          />
+        ))}
+      </span>
+      <span className="flex items-center gap-2 text-lg font-medium">
+        <Mic className="size-5 animate-pulse text-primary" />
+        Listening…
+      </span>
+      <span className="-mt-2 text-sm text-muted-foreground">
+        Ask your question, then pause.
+      </span>
     </div>
   )
 }
@@ -99,6 +88,6 @@ export function VoiceStage({
 }) {
   if (state === "listening") return <ListeningStage level={level} />
   if (state === "transcribing") return <ThinkingStage label="Making out what you said…" />
-  if (busy) return <ThinkingStage />
+  if (state === "asking" || busy) return <ThinkingStage />
   return null
 }

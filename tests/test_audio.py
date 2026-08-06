@@ -225,3 +225,29 @@ def test_loud_audio_reads_high_and_is_clamped():
 
 def test_level_rises_with_volume():
     assert rms_level(frame(300)) < rms_level(frame(1500))
+
+
+# -- the session state machine ---------------------------------------------
+
+def test_an_endpointer_reports_done_even_when_it_discards_the_audio():
+    """A too-short utterance returns nothing. Without `done`, the session
+    cannot tell that apart from 'still recording' and waits forever — which is
+    exactly how it hung after a cough."""
+    ep = Endpointer()
+    for _ in range(6):
+        ep.feed(frame(30))
+    ep.feed(frame(4000))
+    result = None
+    for _ in range(14):
+        result = ep.feed(frame(30)) or result
+    assert result is None, "too short to be a question"
+    assert ep.done is True, "the session must be able to see that it ended"
+
+
+def test_an_endpointer_is_not_done_while_still_recording():
+    ep = Endpointer()
+    for _ in range(6):
+        ep.feed(frame(30))
+    for _ in range(4):
+        ep.feed(frame(2500))
+    assert ep.done is False

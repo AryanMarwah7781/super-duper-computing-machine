@@ -22,7 +22,12 @@ type NewMessage =
   | { role: "user"; text: string }
   | { role: "assistant"; turn: TurnDto | null; error: string | null }
 
-export type VoiceState = "off" | "idle" | "listening" | "transcribing"
+export type VoiceState =
+  | "off"
+  | "idle"
+  | "listening"
+  | "transcribing"
+  | "asking"
 
 export function useAssist() {
   const [state, setState] = useState<ConnectionState>("connecting")

@@ -95,17 +95,25 @@ else {
 
 # ---------------------------------------------------------------- interface
 Head "Interface"
+# npm and vite write progress and warnings to stderr even on success, and
+# under $ErrorActionPreference = "Stop" PowerShell treats a native
+# command's stderr as terminating. Success is judged by the built file
+# below, not by chatter on stderr.
+$savedEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 Push-Location ui
 if ($Force -and (Test-Path "node_modules")) { Remove-Item -Recurse -Force node_modules }
 if (-not (Test-Path "node_modules")) {
-    Say "installing Node packages..."
-    npm install --silent
+    Say "installing Node packages (a few minutes the first time)..."
+    npm install --silent 2>&1 | Out-Null
 } else {
     Say "node_modules already present" DarkGray
 }
 Say "building..."
-npm run build 2>&1 | Select-String -Pattern "built in|error" | ForEach-Object { Say $_ }
+$buildOutput = npm run build 2>&1 | Out-String
 Pop-Location
+$ErrorActionPreference = $savedEAP
+if ($buildOutput -match "built in ([\d.]+\w+)") { Say "built in $($Matches[1])" DarkGray }
 if (-not (Test-Path "ui\dist\index.html")) { Say "interface build failed" Red; exit 1 }
 Say "interface built" Green
 

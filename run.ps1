@@ -42,10 +42,17 @@ if (-not (Test-Path $Python)) {
 $dist = "ui\dist\index.html"
 if ($Build -or -not (Test-Path $dist)) {
     Head "Building the interface"
+        # npm and vite write progress and warnings to stderr even on success, and
+    # under $ErrorActionPreference = "Stop" PowerShell treats a native
+    # command's stderr as terminating. Success is judged by the built file
+    # below, not by chatter on stderr.
+    $savedEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     Push-Location ui
-    npm run build
-    if ($LASTEXITCODE -ne 0) { Pop-Location; Say "  build failed" Red; exit 1 }
+    npm run build 2>&1 | Out-Null
     Pop-Location
+    $ErrorActionPreference = $savedEAP
+    if (-not (Test-Path $dist)) { Say "  build failed" Red; exit 1 }
     Say "  built" Green
 }
 

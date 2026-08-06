@@ -159,6 +159,26 @@ export async function login(
   }
 }
 
+export type VoiceStatus = {
+  state: "off" | "idle" | "listening" | "transcribing"
+  wake_ready: boolean
+  stt_ready: boolean
+  mic_running: boolean
+  error: string | null
+}
+
+export async function startVoice(): Promise<VoiceStatus | null> {
+  return ((await bridge()?.start_voice()) as VoiceStatus) ?? null
+}
+
+export async function stopVoice(): Promise<void> {
+  await bridge()?.stop_voice()
+}
+
+export async function setActiveUser(userId: string): Promise<void> {
+  await bridge()?.set_active_user(userId)
+}
+
 export async function history(userId: string): Promise<HistoryEntry[]> {
   const api = bridge()
   if (!api) return []

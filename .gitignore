@@ -13,3 +13,5 @@ turns.jsonl
 data/profiles.json
 
 data/cma_baseline.txt
+# whisper model cache
+.cache/

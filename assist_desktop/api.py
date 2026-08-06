@@ -40,6 +40,10 @@ class Api:
         self._log = TurnLog(log_path or Path("turns.jsonl"))
         self._users = UserStore(profiles_path or Path("data/profiles.json"))
         self._monitor = HealthMonitor(self._transport, self._on_connection_change)
+        # Voice asks originate in the audio thread, which has no idea who is
+        # signed in — the UI tells us on sign-in and we remember.
+        self._active_user = ""
+        self._voice = None
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -103,3 +107,41 @@ class Api:
     def clear_history(self, user_id: str) -> dict:
         self._users.clear_history(user_id)
         return {"ok": True}
+
+    # -- voice -------------------------------------------------------------
+    def set_active_user(self, user_id: str) -> dict:
+        """Who a spoken question belongs to. Called on sign-in and sign-out."""
+        self._active_user = user_id or ""
+        return {"ok": True}
+
+    def _ask_from_voice(self, text: str) -> None:
+        """A spoken question takes the identical path to a typed one, then the
+        answer is pushed as an event — nobody is awaiting a promise for it."""
+        result = self.ask(text, source="voice", user_id=self._active_user)
+        self._emit("answer", {"query": text, **result})
+
+    def _voice_session(self):
+        if self._voice is None:
+            from .audio.session import VoiceSession
+            self._voice = VoiceSession(emit=self._emit, ask=self._ask_from_voice)
+        return self._voice
+
+    def start_voice(self) -> dict:
+        try:
+            return {"ok": True, **self._voice_session().start()}
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    def stop_voice(self) -> dict:
+        try:
+            if self._voice is None:
+                return {"ok": True, "state": "off"}
+            return {"ok": True, **self._voice.stop()}
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    def voice_status(self) -> dict:
+        if self._voice is None:
+            return {"ok": True, "state": "off", "wake_ready": False,
+                    "stt_ready": False, "mic_running": False, "error": None}
+        return {"ok": True, **self._voice.status()}

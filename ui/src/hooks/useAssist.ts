@@ -22,11 +22,15 @@ type NewMessage =
   | { role: "user"; text: string }
   | { role: "assistant"; turn: TurnDto | null; error: string | null }
 
+export type VoiceState = "off" | "idle" | "listening" | "transcribing"
+
 export function useAssist() {
   const [state, setState] = useState<ConnectionState>("connecting")
   const [detail, setDetail] = useState("starting up")
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
+  const [voice, setVoice] = useState<VoiceState>("off")
+  const [level, setLevel] = useState(0)
   const nextId = useRef(1)
 
   const push = useCallback((m: NewMessage) => {
@@ -40,10 +44,27 @@ export function useAssist() {
       setState(next.state)
       setDetail(next.detail)
     })
+    const offVoice = onEvent("voice", (d) => {
+      setVoice((d as { state: VoiceState }).state)
+    })
+    const offLevel = onEvent("voice_level", (d) => {
+      setLevel((d as { level: number }).level)
+    })
+    // A spoken question is asked by the audio thread, so its answer arrives as
+    // an event rather than a resolved promise. Land both halves in the
+    // conversation so voice and typing produce an identical transcript.
+    const offAnswer = onEvent("answer", (d) => {
+      const r = d as { query: string; ok: boolean; turn: TurnDto | null; error: string | null }
+      push({ role: "user", text: r.query })
+      push({ role: "assistant", turn: r.ok ? r.turn : null, error: r.ok ? null : r.error })
+    })
     return () => {
       offConnection()
+      offVoice()
+      offLevel()
+      offAnswer()
     }
-  }, [])
+  }, [push])
 
   const ask = useCallback(
     async (query: string, userId = "") => {
@@ -82,6 +103,8 @@ export function useAssist() {
     detail,
     messages,
     busy,
+    voice,
+    level,
     ask,
     appendHistory,
     clearConversation,

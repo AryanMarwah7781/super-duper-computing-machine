@@ -6,10 +6,18 @@ import { NavBar } from "@/components/NavBar"
 import { PlaceholderScreen } from "@/components/PlaceholderScreen"
 import { SplashScreen } from "@/components/SplashScreen"
 import { StatusStrip } from "@/components/StatusStrip"
+import { VoiceIndicator } from "@/components/VoiceIndicator"
 import { LessonPlanArt, SimulatorArt } from "@/components/art/TileArt"
 import { useAssist } from "@/hooks/useAssist"
 import { useNavigation, type ScreenName } from "@/hooks/useNavigation"
-import { history, type HistoryEntry, type UserDto } from "@/lib/bridge"
+import {
+  history,
+  setActiveUser,
+  startVoice,
+  stopVoice,
+  type HistoryEntry,
+  type UserDto,
+} from "@/lib/bridge"
 
 const TITLES: Record<ScreenName, string> = {
   login: "",
@@ -20,8 +28,17 @@ const TITLES: Record<ScreenName, string> = {
 }
 
 export default function App() {
-  const { state, detail, messages, busy, ask, appendHistory, clearConversation } =
-    useAssist()
+  const {
+    state,
+    detail,
+    messages,
+    busy,
+    voice,
+    level,
+    ask,
+    appendHistory,
+    clearConversation,
+  } = useAssist()
   const nav = useNavigation("login")
   const [user, setUser] = useState<UserDto | null>(null)
   const [entries, setEntries] = useState<HistoryEntry[]>([])
@@ -37,10 +54,16 @@ export default function App() {
 
   function signIn(next: UserDto) {
     setUser(next)
+    // Voice listens only for a signed-in operator: answers are recorded
+    // against their history, and an idle machine listening to the room is a
+    // different product decision.
+    void setActiveUser(next.id).then(() => startVoice())
     nav.go("home")
   }
 
   function signOut() {
+    void stopVoice()
+    void setActiveUser("")
     setUser(null)
     setEntries([])
     clearConversation()
@@ -123,7 +146,12 @@ export default function App() {
       </div>
 
       {nav.screen !== "login" && (
-        <StatusStrip state={state} detail={detail} totalMs={totalMs} />
+        <StatusStrip
+          state={state}
+          detail={detail}
+          totalMs={totalMs}
+          voice={<VoiceIndicator state={voice} level={level} />}
+        />
       )}
     </div>
   )

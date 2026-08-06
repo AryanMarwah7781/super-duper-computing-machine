@@ -33,6 +33,9 @@ export type TurnDto = {
     procedure_name: string
     page: number | null
   }[]
+  /** A repaired query, when a word looks misheard. Empty when nothing matched
+   * badly enough to guess at. */
+  suggestion?: string
   timing: Record<string, number>
 }
 
@@ -173,6 +176,21 @@ export async function startVoice(): Promise<VoiceStatus | null> {
 
 export async function stopVoice(): Promise<void> {
   await bridge()?.stop_voice()
+}
+
+export type AudioDevice = { index: number; name: string; default: boolean }
+
+export async function audioDevices(): Promise<{
+  devices: AudioDevice[]
+  current: number | null
+}> {
+  const api = bridge()
+  if (!api) return { devices: [], current: null }
+  return (await api.audio_devices()) as { devices: AudioDevice[]; current: number | null }
+}
+
+export async function setAudioDevice(index: number | null): Promise<void> {
+  await bridge()?.set_audio_device(index)
 }
 
 export async function setActiveUser(userId: string): Promise<void> {

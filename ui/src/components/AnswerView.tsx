@@ -1,22 +1,44 @@
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import type { TurnDto } from "@/lib/bridge"
 import { parseDisplayText } from "@/lib/render"
 import { Photo } from "./PhotoStrip"
 import { SafetyBanner } from "./SafetyBanner"
 import { Step } from "./StepList"
 
-export function AnswerView({ turn }: { turn: TurnDto | null }) {
+export function AnswerView({
+  turn,
+  onAsk,
+}: {
+  turn: TurnDto | null
+  onAsk?: (query: string) => void
+}) {
   if (!turn) return <div />
 
   // Nothing matched. Say so plainly — confidently wrong is worse than silent,
   // especially for someone standing next to a machine.
   if (turn.plan.kind === "oos" || !turn.answer) {
+    const suggestion = turn.suggestion?.trim()
     return (
       <div className="py-16 text-center">
         <p className="text-2xl font-medium">I don't know.</p>
         <p className="mt-2 text-muted-foreground">
           Nothing in the manual matched that question.
         </p>
+        {/* A word was probably misheard. Offer the repair rather than making
+            the operator work out which one and say it again. */}
+        {suggestion && onAsk && (
+          <div className="mt-8">
+            <p className="text-sm text-muted-foreground">Did you mean</p>
+            <Button
+              variant="outline"
+              className="mt-2 h-auto max-w-xl whitespace-normal px-5 py-3 text-base"
+              onClick={() => onAsk(suggestion)}
+            >
+              “{suggestion}”
+            </Button>
+          </div>
+        )}
       </div>
     )
   }

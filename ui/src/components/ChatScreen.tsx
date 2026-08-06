@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "react"
-import type { ChatMessage } from "@/hooks/useAssist"
+import type { ChatMessage, VoiceState } from "@/hooks/useAssist"
 import type { ConnectionState, HistoryEntry } from "@/lib/bridge"
 import { AnswerView } from "./AnswerView"
 import { AskBar } from "./AskBar"
 import { CollaborationMark } from "./Brand"
 import { HistorySidebar } from "./HistorySidebar"
+import { VoiceStage } from "./VoiceStage"
 import { FarmingHeroArt } from "./art/TileArt"
 
 function EmptyState() {
@@ -42,6 +43,8 @@ export function ChatScreen({
   state,
   onAsk,
   onReopen,
+  voice = "off",
+  level = 0,
 }: {
   messages: ChatMessage[]
   entries: HistoryEntry[]
@@ -51,6 +54,8 @@ export function ChatScreen({
   state: ConnectionState
   onAsk: (q: string) => void
   onReopen: (entry: HistoryEntry) => void
+  voice?: VoiceState
+  level?: number
 }) {
   const end = useRef<HTMLDivElement>(null)
 
@@ -66,10 +71,12 @@ export function ChatScreen({
 
       <div className="flex min-w-0 flex-1 flex-col">
         <main className="min-h-0 flex-1 overflow-y-auto">
-          {messages.length === 0 && !busy ? (
+          {messages.length === 0 && !busy && voice !== "listening" &&
+           voice !== "transcribing" ? (
             <EmptyState />
           ) : (
             <>
+              {messages.length === 0 && <div className="h-6" />}
               {messages.map((m) =>
                 m.role === "user" ? (
                   <Question key={m.id} text={m.text} />
@@ -78,14 +85,10 @@ export function ChatScreen({
                     {m.error}
                   </p>
                 ) : (
-                  <AnswerView key={m.id} turn={m.turn} />
+                  <AnswerView key={m.id} turn={m.turn} onAsk={onAsk} />
                 ),
               )}
-              {busy && (
-                <p className="mx-auto max-w-3xl px-6 py-6 text-muted-foreground">
-                  Looking it up…
-                </p>
-              )}
+              <VoiceStage state={voice} level={level} busy={busy} />
               <div ref={end} />
             </>
           )}

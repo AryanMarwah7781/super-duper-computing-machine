@@ -7,6 +7,7 @@ import { PlaceholderScreen } from "@/components/PlaceholderScreen"
 import { SplashScreen } from "@/components/SplashScreen"
 import { StatusStrip } from "@/components/StatusStrip"
 import { VoiceIndicator } from "@/components/VoiceIndicator"
+import { VoiceSettings } from "@/components/VoiceSettings"
 import { LessonPlanArt, SimulatorArt } from "@/components/art/TileArt"
 import { useAssist } from "@/hooks/useAssist"
 import { useNavigation, type ScreenName } from "@/hooks/useNavigation"
@@ -123,6 +124,8 @@ export default function App() {
             state={state}
             onAsk={onAsk}
             onReopen={(entry) => appendHistory(entry.query, entry.turn)}
+            voice={voice}
+            level={level}
           />
         )}
 
@@ -150,7 +153,12 @@ export default function App() {
           state={state}
           detail={detail}
           totalMs={totalMs}
-          voice={<VoiceIndicator state={voice} level={level} />}
+          voice={
+            <>
+              <VoiceIndicator state={voice} level={level} />
+              <VoiceSettings state={voice} />
+            </>
+          }
         />
       )}
     </div>

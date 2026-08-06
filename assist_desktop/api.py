@@ -153,6 +153,19 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
+    def audio_devices(self) -> dict:
+        from .audio.mic import list_input_devices
+        current = self._voice._mic.device if self._voice is not None else None
+        return {"ok": True, "devices": list_input_devices(), "current": current}
+
+    def set_audio_device(self, index) -> dict:
+        try:
+            value = None if index in (None, "", -1, "-1") else int(index)
+            return {"ok": True, **self._voice_session().set_device(value)}
+        except Exception as e:
+            log.exception("could not switch microphone")
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
     def voice_status(self) -> dict:
         if self._voice is None:
             return {"ok": True, "state": "off", "wake_ready": False,

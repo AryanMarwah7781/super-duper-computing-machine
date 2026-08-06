@@ -26,7 +26,7 @@ from typing import Callable, Optional
 import numpy as np
 
 from ..logs import get as get_logger
-from .mic import Microphone, rms_level
+from .mic import Microphone, list_input_devices, rms_level
 from .stt import Endpointer, Transcriber, Utterance
 from .wake import Detection, WakeWord
 
@@ -104,9 +104,25 @@ class VoiceSession:
         self._set_state(VoiceState.OFF)
         return self.status()
 
+    def devices(self) -> list[dict]:
+        return list_input_devices()
+
+    def set_device(self, index: Optional[int]) -> dict:
+        """Switch microphone. Restarts the stream if it is already running,
+        because a device cannot be changed underneath an open stream."""
+        was_running = self._mic.running
+        if was_running:
+            self.stop()
+        self._mic = Microphone(device=index)
+        log.info("microphone set to device %s", index if index is not None else "default")
+        if was_running:
+            return self.start()
+        return self.status()
+
     def status(self) -> dict:
         return {
             "state": self._state.value,
+            "device": self._mic.device,
             "wake_ready": self._wake.available,
             "stt_ready": self._stt.available,
             "mic_running": self._mic.running,

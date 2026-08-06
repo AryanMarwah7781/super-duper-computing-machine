@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   Creates the virtual environment, installs Python and Node dependencies,
-  fetches the speech voice, and builds the interface. Safe to re-run — it skips
+  fetches the speech voice, and builds the interface. Safe to re-run - it skips
   whatever is already done.
 
   Afterwards:  .\run.ps1
@@ -27,7 +27,7 @@ Set-Location $PSScriptRoot
 function Head($t) { Write-Host ""; Write-Host $t -ForegroundColor Cyan }
 function Say($t, $c = "Gray") { Write-Host "  $t" -ForegroundColor $c }
 
-Head "DEERE ASSIST — setup"
+Head "DEERE ASSIST - setup"
 
 # ------------------------------------------------------------------ toolchain
 Head "Checking the toolchain"

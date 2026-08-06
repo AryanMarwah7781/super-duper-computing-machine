@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   Follows the application log, colouring the lines that matter. Run it in a
-  second window next to .\run.ps1 — or on its own, since the log survives
+  second window next to .\run.ps1 - or on its own, since the log survives
   restarts.
 
 .EXAMPLE

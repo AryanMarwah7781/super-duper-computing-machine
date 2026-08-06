@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   Runs in the FOREGROUND and streams the log to this window. Ctrl-C stops it.
-  Nothing is hidden or detached — closing this window closes the application.
+  Nothing is hidden or detached - closing this window closes the application.
 
 .EXAMPLE
   .\run.ps1                 Check the board, then start the app

@@ -43,6 +43,17 @@ export function AnswerView({
     )
   }
 
+  // Chris talking, not the manual. No safety banner, no steps, no page
+  // number -- none of that exists here, and a citation under something Chris
+  // said would imply the manual backed it.
+  if (turn.plan.kind === "chat" && turn.answer) {
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-6">
+        <p className="text-lg leading-relaxed">{turn.answer.display_text}</p>
+      </div>
+    )
+  }
+
   // Nothing matched. Say so plainly — confidently wrong is worse than silent,
   // especially for someone standing next to a machine.
   if (turn.plan.kind === "oos" || !turn.answer) {

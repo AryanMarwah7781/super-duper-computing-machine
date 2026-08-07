@@ -38,13 +38,19 @@ DEFAULT_DEVKIT_URL = os.environ.get("ASSIST_DEVKIT_URL",
 @dataclass(frozen=True)
 class Config:
     devkit_url: str = DEFAULT_DEVKIT_URL
-    timeout_s: float = 20.0
+    # No meaningful deadline. 20 seconds was picked when the board did nothing
+    # but retrieve; it now shares 16 small ARM cores with Chris, and a cold
+    # index load alone is ~26 s. A question that takes a minute is slow, not
+    # broken, and cutting it off loses the answer and tells the operator
+    # nothing. This is only long enough to notice a genuinely dead socket, and
+    # the UI can cancel at any time.
+    timeout_s: float = 300.0
     top_k: int = 5
 
     @classmethod
     def load(cls) -> "Config":
         return cls(
             devkit_url=os.environ.get("ASSIST_DEVKIT_URL", DEFAULT_DEVKIT_URL),
-            timeout_s=float(os.environ.get("ASSIST_TIMEOUT_S", "20")),
+            timeout_s=float(os.environ.get("ASSIST_TIMEOUT_S", "300")),
             top_k=int(os.environ.get("ASSIST_TOP_K", "5")),
         )

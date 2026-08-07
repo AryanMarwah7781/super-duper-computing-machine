@@ -11,7 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import commands
+from . import commands, llm, smalltalk
 from .client.health import ConnectionState, HealthMonitor
 from .logs import get as get_logger
 from .client.transport import StaleResponse, Transport, TransportError
@@ -35,6 +35,25 @@ def _command_turn(result: "commands.CommandResult") -> dict:
             "spoken_segments": [result.spoken],
             "safety": [], "citations": [], "images": [],
             "render_version": "command", "source_hash": "",
+        },
+        "candidates": [],
+        "timing": {"search_ms": 0, "render_ms": 0, "total_ms": 0},
+    }
+
+
+def _chat_turn(reply: str, ok: bool = True) -> dict:
+    """Dress a reply from Chris as a turn, so it flows through history, the
+    conversation and speech like any other answer. No citations and no
+    candidates: nothing here came from the manual, and pretending otherwise
+    would put a page number under something Chris said."""
+    return {
+        "plan": {"kind": "chat", "chunk_ids": [],
+                 "reason": "smalltalk" if ok else "chat failed"},
+        "answer": {
+            "display_text": reply,
+            "spoken_segments": [reply],
+            "safety": [], "citations": [], "images": [],
+            "render_version": "chat", "source_hash": "",
         },
         "candidates": [],
         "timing": {"search_ms": 0, "render_ms": 0, "total_ms": 0},
@@ -106,6 +125,31 @@ class Api:
                 self._users.record(user_id, query, "command", source, turn=payload)
             return {"ok": True, "turn": payload, "error": None}
 
+        # Greetings go to Chris; anything about the machine goes to the
+        # manual. The default is the manual -- see smalltalk.py for why that
+        # direction is the safe one.
+        if smalltalk.is_smalltalk(query):
+            ok, reply = llm.chat(query)
+            if ok:
+                payload = _chat_turn(reply)
+                if user_id:
+                    self._users.record(user_id, query, "chat", source,
+                                       turn=payload)
+                return {"ok": True, "turn": payload, "error": None}
+            # Chris is down. Say so rather than silently searching the manual
+            # for "how are you" and answering "I don't know".
+            log.warning("  chris failed: %s", reply)
+            payload = _chat_turn("I can't reach my conversation model right "
+                                 "now, but I can still answer questions about "
+                                 "the machine.", ok=False)
+            if user_id:
+                self._users.record(user_id, query, "chat", source, turn=payload)
+            return {"ok": True, "turn": payload, "error": None}
+
+        # The wake word rides along in voice transcripts; retrieval should not
+        # have to match against it.
+        query = smalltalk.strip_wake_word(query) or query
+
         try:
             turn = self._transport.ask(query, top_k=self._config.top_k)
         except StaleResponse:
@@ -118,6 +162,20 @@ class Api:
             log.warning("  FAILED: %s", e.detail)
             self._emit("error", {"code": "transport", "message": e.detail})
             return {"ok": False, "turn": None, "error": e.detail}
+        # The manual is a procedure corpus and has no glossary, so a fair
+        # question like "what is a boom" comes back out-of-scope. Let Chris
+        # explain the concept -- never the numbers or the steps.
+        if turn.plan.kind == "oos":
+            ok, reply = llm.explain(query)
+            if ok:
+                self._log.append(query, turn, source=source)
+                payload = _chat_turn(reply)
+                payload["plan"]["reason"] = "oos -> chris explained"
+                if user_id:
+                    self._users.record(user_id, query, "chat", source,
+                                       turn=payload)
+                return {"ok": True, "turn": payload, "error": None}
+
         self._log.append(query, turn, source=source)
         top = turn.candidates[0].procedure_name if turn.candidates else "-"
         log.info("  %s in %sms - %s", turn.plan.kind,

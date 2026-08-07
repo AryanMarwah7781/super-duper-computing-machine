@@ -112,3 +112,30 @@ describe("commands", () => {
     expect(bad.innerHTML).toContain("destructive")
   })
 })
+
+describe("chat", () => {
+  const chat = (text: string): TurnDto => ({
+    plan: { kind: "chat", chunk_ids: [], reason: "smalltalk" },
+    answer: {
+      display_text: text,
+      spoken_segments: [text],
+      safety: [],
+      citations: [],
+      images: [],
+      render_version: "chat",
+      source_hash: "",
+    },
+    candidates: [],
+    timing: { total_ms: 0 },
+  })
+
+  it("shows what Chris said", () => {
+    render(<AnswerView turn={chat("I'm here. What do you need?")} />)
+    expect(screen.getByText("I'm here. What do you need?")).toBeDefined()
+  })
+
+  it("never puts a manual page under something Chris said", () => {
+    const { container } = render(chat("I'm fine.") && <AnswerView turn={chat("I'm fine.")} />)
+    expect(container.textContent).not.toContain("Manual page")
+  })
+})

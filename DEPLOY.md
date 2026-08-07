@@ -81,6 +81,36 @@ To run with no devkit at all — fixtures instead of the real manual:
 Standing a new board up from scratch is a separate job — the corpus, the index
 and the models all have to be copied and the index repacked.
 
+## What runs on the board
+
+Three systemd services, all enabled, so the board comes up serving after a
+power cut without anyone logging in.
+
+| Service | Port | What |
+|---|---|---|
+| `assist-rag` | 8090 | v3 retrieval. Answers questions from the manual. |
+| `chris-llm` | 8091 | Gemma 4 E2B on llama.cpp, CPU. Answers greetings. |
+| `chris-warm` | - | Runs once at boot to pre-load the prompt cache. |
+
+```bash
+systemctl status assist-rag chris-llm         # is it up
+sudo journalctl -u chris-llm -f               # watch it
+sudo systemctl restart assist-rag             # after changing the index
+```
+
+`chris-llm` is pinned to 6 of the 16 cores. The rest are left for retrieval:
+v3 runs bge-large and a cross-encoder on the same CPU, and starving it turned
+5 second queries into 41 second ones. `chris-warm` exists because processing
+the system prompt takes ~30 s at 6 tokens/second, and without it the first
+person to say hello after a reboot waits a minute.
+
+Two more services, `llima-model` and `llima-api`, are installed but
+**disabled**. They run Gemma on the accelerator instead, which is far faster,
+but their API front-end cannot reach their own model server -- 404 on every
+inference route -- and the accelerator leaks ~217 MB per model load, which only
+a reboot reclaims. Re-enable with `sudo systemctl enable --now llima-model`
+if that ever gets fixed.
+
 ## Settings
 
 All optional; `.env` or the environment.

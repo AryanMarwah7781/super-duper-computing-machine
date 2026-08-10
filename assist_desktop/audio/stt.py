@@ -147,12 +147,23 @@ class Transcriber:
         self.error: Optional[str] = None
         self._model = None
         self._lock = threading.Lock()
+        self._load_lock = threading.Lock()
 
     @property
     def available(self) -> bool:
         return self._model is not None
 
     def load(self) -> bool:
+        """Loaded once, whatever asks. Switching microphone restarts the
+        session, and a second load starting while the first is still inside
+        faster-whisper took the whole process down with no Python error to
+        show for it — see session.start()."""
+        with self._load_lock:
+            if self._model is not None:
+                return True
+            return self._load()
+
+    def _load(self) -> bool:
         try:
             from faster_whisper import WhisperModel
             # int8 on CPU: the accuracy cost is negligible for short commands

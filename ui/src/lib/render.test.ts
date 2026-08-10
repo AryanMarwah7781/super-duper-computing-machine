@@ -130,3 +130,72 @@ describe("imageUrl", () => {
     )
   })
 })
+
+describe("PDF hard-wrapping", () => {
+  // Verbatim from the board, 2026-08-10, "how do i start spraying". The corpus
+  // carries the manual's column line breaks, so one sentence arrives as five
+  // physical lines.
+  const WRAPPED = [
+    "**CAUTION:** Do not turn on the machine until you",
+    "are sure that nobody is in the danger zone.",
+    "NOTE: Plungers do not open properly when operating",
+    "above 965.3 kPa (9.65 bar) (140 psi) when a low",
+    "voltage condition occurs.",
+    "Operate Indexed Boom Sections (IBS)",
+    "This machine is equipped with Indexed Boom Section",
+    "(IBS) switching. This gives the operator another way to",
+    "shutoff boom spray sections in sequence without",
+    "removing your hand from the multi-function lever.",
+  ].join("\n")
+
+  const SAFETY_BLOCKS = [
+    {
+      level: "CAUTION",
+      text:
+        "Do not turn on the machine until you\nare sure that nobody is in the " +
+        "danger zone.\nNOTE: Plungers do not open properly when operating\n" +
+        "above 965.3 kPa (9.65 bar) (140 psi) when a low\nvoltage condition occurs.",
+    },
+  ]
+
+  it("keeps a wrapped warning whole instead of cutting it mid-sentence", () => {
+    const nodes = parseDisplayText(WRAPPED, [], SAFETY_BLOCKS)
+    const safety = nodes.find((n) => n.kind === "safety")!
+    expect(safety.text).toContain("nobody is in the danger zone")
+    expect(safety.text).toContain("voltage condition occurs")
+  })
+
+  it("does not leak the rest of the warning into the body", () => {
+    const nodes = parseDisplayText(WRAPPED, [], SAFETY_BLOCKS)
+    const body = nodes.filter((n) => n.kind === "text").map((n) => n.text)
+    expect(body.join(" ")).not.toContain("danger zone")
+  })
+
+  it("stops the warning where the manual stops it", () => {
+    // The line after the block is new content and must not be swallowed.
+    const nodes = parseDisplayText(WRAPPED, [], SAFETY_BLOCKS)
+    const safety = nodes.find((n) => n.kind === "safety")!
+    expect(safety.text).not.toContain("Indexed Boom Sections")
+    expect(nodes.some((n) => n.kind === "text" && n.text.includes("Indexed Boom Section"))).toBe(true)
+  })
+
+  it("joins wrapped body lines into one paragraph", () => {
+    const nodes = parseDisplayText(WRAPPED, [], SAFETY_BLOCKS)
+    const body = nodes.filter((n) => n.kind === "text")
+    const joined = body.map((n) => n.text).join(" ")
+    expect(joined).toContain("This machine is equipped with Indexed Boom Section (IBS) switching")
+    expect(body.length).toBeLessThan(4)
+  })
+
+  it("still works when no safety blocks are supplied", () => {
+    const nodes = parseDisplayText(WRAPPED, [])
+    expect(nodes.find((n) => n.kind === "safety")!.level).toBe("CAUTION")
+  })
+
+  it("keeps separate paragraphs separate", () => {
+    const nodes = parseDisplayText("First para wraps\nover two lines.\n\nSecond para.", [])
+    const body = nodes.filter((n) => n.kind === "text")
+    expect(body).toHaveLength(2)
+    expect(body[0].text).toBe("First para wraps over two lines.")
+  })
+})

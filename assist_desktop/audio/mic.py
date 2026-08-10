@@ -69,24 +69,30 @@ class Microphone:
     def start(self) -> bool:
         if self._stream is not None:
             return True
-        try:
-            import sounddevice as sd
-            self._stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                blocksize=FRAME_SAMPLES,
-                device=self.resolved_device(),
-                channels=1,
-                dtype="int16",
-                callback=self._on_frames,
-            )
-            self._stream.start()
-            note_stream_opened()
-            self.error = None
-            return True
-        except Exception as e:
-            self.error = f"{type(e).__name__}: {e}"
-            self._stream = None
-            return False
+        # Held for the whole open, and by _refresh() for the whole re-init.
+        # Opening a stream while another thread is between _terminate() and
+        # _initialize() reads PortAudio state that has been freed: an access
+        # violation inside libportaudio64bit.dll, which takes the process with
+        # it and leaves nothing in the log.
+        with _audio_lock:
+            try:
+                import sounddevice as sd
+                self._stream = sd.InputStream(
+                    samplerate=SAMPLE_RATE,
+                    blocksize=FRAME_SAMPLES,
+                    device=self.resolved_device(),
+                    channels=1,
+                    dtype="int16",
+                    callback=self._on_frames,
+                )
+                self._stream.start()
+                note_stream_opened()
+                self.error = None
+                return True
+            except Exception as e:
+                self.error = f"{type(e).__name__}: {e}"
+                self._stream = None
+                return False
 
     def stop(self) -> None:
         if self._stream is not None:
@@ -122,6 +128,9 @@ def _sd():
 
 _streams = 0
 _streams_lock = threading.Lock()
+# Serialises opening a stream against re-initialising PortAudio. Both are
+# native calls into one global library; overlapping them crashes the process.
+_audio_lock = threading.RLock()
 
 
 def note_stream_opened() -> None:
@@ -154,20 +163,27 @@ def _refresh(sd) -> None:
     Never leave it terminated. The two calls are caught separately, because
     one try/except around both meant a failed _initialize() after a successful
     _terminate() left the audio stack switched off permanently.
+
+    Never overlap it with a stream being opened. The counter below says whether
+    a stream IS open; it cannot say one is half-open. `_audio_lock` covers the
+    window between "sd.InputStream(...)" being called and the counter going up
+    — a window a device switch lands in every time, and where PortAudio died
+    with 0xc0000005 on 2026-08-09.
     """
-    with _streams_lock:
-        if _streams:
+    with _audio_lock:
+        with _streams_lock:
+            if _streams:
+                return
+        try:
+            sd._terminate()
+        except Exception:
+            # An old or unusual PortAudio build without these. A stale list is
+            # still better than no list -- and nothing has been torn down.
             return
-    try:
-        sd._terminate()
-    except Exception:
-        # An old or unusual PortAudio build without these. A stale list is
-        # still better than no list -- and nothing has been torn down.
-        return
-    try:
-        sd._initialize()
-    except Exception:
-        pass
+        try:
+            sd._initialize()
+        except Exception:
+            pass
 
 
 def list_input_devices() -> list[dict]:

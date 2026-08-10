@@ -46,11 +46,28 @@ function findImage(caption: string, images: ImageRef[]): ImageRef | null {
   )
 }
 
+export type SafetyRef = { level: string; text: string }
+
 export function parseDisplayText(
   displayText: string,
   images: ImageRef[],
+  safetyBlocks: SafetyRef[] = [],
 ): Node[] {
   const nodes: Node[] = []
+
+  /**
+   * How many more physical lines belong to the warning just emitted.
+   *
+   * The corpus keeps the manual's column line breaks, so one warning arrives
+   * as several lines — "Do not turn on the machine until you" / "are sure that
+   * nobody is in the danger zone." Matching only the first left the banner cut
+   * mid-sentence and spilled the rest into the body as loose paragraphs.
+   *
+   * The count comes from the answer's own `safety` block rather than from
+   * guessing where the warning ends, because the line after it is ordinary
+   * content that must not be swallowed.
+   */
+  let safetyRemaining = 0
 
   /**
    * The corpus wraps mid-sentence, so a step's text arrives across several
@@ -65,19 +82,47 @@ export function parseDisplayText(
     return true
   }
 
+  /** Same wrapping problem, applied to prose. A blank line ends a paragraph. */
+  const continueLastParagraph = (text: string): boolean => {
+    const last = nodes[nodes.length - 1]
+    if (!last || last.kind !== "text" || paragraphBroken) return false
+    last.text = `${last.text} ${text}`.replace(/\s+/g, " ").trim()
+    return true
+  }
+
+  let paragraphBroken = true
+
   for (const raw of displayText.split("\n")) {
     const line = raw.trim()
-    if (!line) continue
+    if (!line) {
+      // A blank line is the only paragraph separator the grammar has.
+      paragraphBroken = true
+      continue
+    }
+
+    if (safetyRemaining > 0) {
+      safetyRemaining -= 1
+      continue
+    }
 
     const safety = SAFETY.exec(line)
     if (safety) {
-      nodes.push({ kind: "safety", level: safety[1], text: safety[2] })
+      const block = safetyBlocks.find(
+        (b) => b.level === safety[1] && b.text.startsWith(safety[2]),
+      )
+      const text = (block?.text ?? safety[2]).replace(/\s+/g, " ").trim()
+      // Skip the remaining physical lines this warning occupies, so they are
+      // not re-emitted as body text below the banner.
+      safetyRemaining = block ? block.text.split("\n").length - 1 : 0
+      nodes.push({ kind: "safety", level: safety[1], text })
+      paragraphBroken = true
       continue
     }
 
     const step = STEP.exec(line)
     if (step) {
       nodes.push({ kind: "step", num: step[1], text: step[2] })
+      paragraphBroken = true
       continue
     }
 
@@ -85,18 +130,21 @@ export function parseDisplayText(
     if (photo) {
       const caption = photo[1]
       nodes.push({ kind: "photo", caption, image: findImage(caption, images) })
+      paragraphBroken = true
       continue
     }
 
     const citation = CITATION.exec(line)
     if (citation) {
       nodes.push({ kind: "citation", page: citation[1] })
+      paragraphBroken = true
       continue
     }
 
     const heading = HEADING.exec(line)
     if (heading) {
       nodes.push({ kind: "heading", text: heading[1] })
+      paragraphBroken = true
       continue
     }
 
@@ -108,11 +156,13 @@ export function parseDisplayText(
           .map((c) => c.trim())
           .filter(Boolean),
       })
+      paragraphBroken = true
       continue
     }
 
-    if (!continueLastStep(line)) {
+    if (!continueLastStep(line) && !continueLastParagraph(line)) {
       nodes.push({ kind: "text", text: line })
+      paragraphBroken = false
     }
   }
 

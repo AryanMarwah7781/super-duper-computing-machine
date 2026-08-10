@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useState } from "react"
+import { AdminScreen } from "@/components/AdminScreen"
 import { ChatScreen } from "@/components/ChatScreen"
 import { HomeScreen } from "@/components/HomeScreen"
+import { LessonScreen } from "@/components/LessonScreen"
 import { LoginScreen } from "@/components/LoginScreen"
 import { NavBar } from "@/components/NavBar"
-import { PlaceholderScreen } from "@/components/PlaceholderScreen"
+import { SimulatorScreen } from "@/components/SimulatorScreen"
 import { SplashScreen } from "@/components/SplashScreen"
 import { StatusStrip } from "@/components/StatusStrip"
 import { VoiceIndicator } from "@/components/VoiceIndicator"
 import { VoiceSettings } from "@/components/VoiceSettings"
-import { LessonPlanArt, SimulatorArt } from "@/components/art/TileArt"
 import { useAssist } from "@/hooks/useAssist"
 import { useNavigation, type ScreenName } from "@/hooks/useNavigation"
 import {
+  adminLogout,
   history,
+  markOnboarded,
   setActiveUser,
   startVoice,
   stopVoice,
@@ -26,6 +29,7 @@ const TITLES: Record<ScreenName, string> = {
   chat: "Talk to Chatbot",
   lesson: "Lesson Plan",
   simulator: "Start the Simulator",
+  admin: "Training Admin",
 }
 
 export default function App() {
@@ -45,6 +49,7 @@ export default function App() {
   const [user, setUser] = useState<UserDto | null>(null)
   const [entries, setEntries] = useState<HistoryEntry[]>([])
   const [booting, setBooting] = useState(true)
+  const [admin, setAdmin] = useState(false)
 
   const refreshHistory = useCallback(async (userId: string) => {
     setEntries(await history(userId))
@@ -60,12 +65,27 @@ export default function App() {
     // against their history, and an idle machine listening to the room is a
     // different product decision.
     void setActiveUser(next.id).then(() => startVoice())
+    // Somebody the admin added this morning has never started the simulator.
+    // The menu assumes a machine that is already running, so they see how to
+    // bring it up before they see anything else.
+    nav.go(next.onboarded === false ? "simulator" : "home")
+  }
+
+  /** They have watched the walkthrough. Recorded, so it never opens on them
+   * again — and the tile stays on the menu for when they want it. */
+  function finishOnboarding() {
+    if (user && user.onboarded === false) {
+      void markOnboarded(user.id)
+      setUser({ ...user, onboarded: true })
+    }
     nav.go("home")
   }
 
   function signOut() {
     void stopVoice()
     void setActiveUser("")
+    if (admin) void adminLogout()
+    setAdmin(false)
     setUser(null)
     setEntries([])
     clearConversation()
@@ -99,6 +119,7 @@ export default function App() {
       {nav.screen !== "login" && (
         <NavBar
           user={user}
+          admin={admin}
           title={TITLES[nav.screen]}
           canGoBack={nav.canGoBack}
           canGoForward={nav.canGoForward}
@@ -109,7 +130,17 @@ export default function App() {
       )}
 
       <div className="min-h-0 flex-1">
-        {nav.screen === "login" && <LoginScreen onSignedIn={signIn} />}
+        {nav.screen === "login" && (
+          <LoginScreen
+            onSignedIn={signIn}
+            onAdmin={() => {
+              setAdmin(true)
+              nav.go("admin")
+            }}
+          />
+        )}
+
+        {nav.screen === "admin" && admin && <AdminScreen />}
 
         {nav.screen === "home" && user && (
           <HomeScreen userName={user.name} onPick={nav.go} />
@@ -130,21 +161,15 @@ export default function App() {
           />
         )}
 
-        {nav.screen === "lesson" && (
-          <PlaceholderScreen
-            title="Lesson Plan"
-            blurb="A guided sequence that walks through the machine one topic at a time."
-            Art={LessonPlanArt}
-            onHome={nav.back}
-          />
+        {nav.screen === "lesson" && user && (
+          <LessonScreen userId={user.id} onHome={nav.back} />
         )}
 
         {nav.screen === "simulator" && (
-          <PlaceholderScreen
-            title="Start the Simulator"
-            blurb="Step-by-step instructions for bringing the simulator up and running a session."
-            Art={SimulatorArt}
-            onHome={nav.back}
+          <SimulatorScreen
+            firstRun={user?.onboarded === false}
+            userName={user?.name ?? ""}
+            onDone={finishOnboarding}
           />
         )}
       </div>

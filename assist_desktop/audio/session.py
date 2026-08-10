@@ -5,11 +5,18 @@
     -> transcript        faster-whisper, locally
     -> ask()             the same path a typed question takes
 
-Two rules the states exist to enforce:
+Three rules the states exist to enforce:
 
   The wake word is muted while dictating. "hey chris what is the tire pressure"
   scores 0.95 for its whole length, so an unmuted gate would retrigger on the
   question it is already listening to.
+
+  The wake word is muted while the app is talking. Playback runs on its own
+  thread, so `say()` returns the instant it starts and the old code unmuted
+  immediately afterwards — with the answer still coming out of the speakers and
+  into the microphone a foot away. The gate heard the app, fired, cut the answer
+  off mid-sentence and recorded the room. That is the "it started listening
+  again by itself" loop. See `_on_speech`.
 
   Only one utterance is in flight. A second wake during transcription is
   ignored rather than queued — an operator who repeats themselves wants the
@@ -17,6 +24,7 @@ Two rules the states exist to enforce:
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 from enum import Enum
@@ -44,6 +52,16 @@ Emit = Callable[[str, dict], None]
 AskFn = Callable[[str], None]
 log = get_logger("audio")
 
+# How long the gate stays shut after the last word of an answer. Room echo and
+# the tail of a segment arrive slightly after playback reports finished.
+ECHO_TAIL_S = float(os.environ.get("ASSIST_ECHO_TAIL_S", "0.6"))
+
+# Set ASSIST_BARGE_IN=1 to keep the gate live while the app is talking, so
+# "hey chris" can cut an answer short. Only sane on a headset or a directional
+# microphone: on open speakers the app wakes itself. Off by default because
+# that is what it did.
+BARGE_IN = os.environ.get("ASSIST_BARGE_IN", "0").strip().lower() in ("1", "true", "yes")
+
 
 class VoiceSession:
     def __init__(self, emit: Emit, ask: AskFn,
@@ -55,12 +73,17 @@ class VoiceSession:
         self._wake = WakeWord(model_dir=wake_model_dir or WakeWord.__init__.__defaults__[0],
                               on_detect=self._on_wake)
         self._stt = Transcriber()
-        self._speaker = Speaker(on_state=self._emit)
+        # Through the session, not straight to the UI: what the speaker is
+        # doing decides whether the wake gate may listen.
+        self._speaker = Speaker(on_state=self._on_speech)
         self._endpointer: Optional[Endpointer] = None
         self._state = VoiceState.OFF
         self._lock = threading.Lock()
         self._unsubscribe: Optional[Callable[[], None]] = None
         self._last_level_sent = 0.0
+        self._spoke_until = 0.0
+        # The last listing handed to the picker, so a switch need not re-scan.
+        self._devices: list[dict] = []
         self.error: Optional[str] = None
 
     # -- lifecycle ---------------------------------------------------------
@@ -85,8 +108,20 @@ class VoiceSession:
 
         # Whisper and the voice both load lazily: they are the slow parts and
         # the wake word should be live immediately.
-        threading.Thread(target=self._stt.load, daemon=True).start()
-        threading.Thread(target=self._speaker.load, daemon=True).start()
+        #
+        # Only if they are not already loaded. Switching microphone comes
+        # through here, and Whisper takes long enough that a switch a few
+        # seconds after sign-in used to start a second load while the first
+        # was still inside faster-whisper — with Piper reloading beside it and
+        # PortAudio being re-initialised for the device scan. Three native
+        # libraries reinitialising at once, and the process died without a
+        # Python error: "select the AirPods, it loads for a second, it
+        # crashes". The loads are individually guarded too; this keeps the
+        # threads from being spawned at all.
+        if not self._stt.available:
+            threading.Thread(target=self._stt.load, daemon=True).start()
+        if not self._speaker.available:
+            threading.Thread(target=self._speaker.load, daemon=True).start()
 
         if not self._mic.start():
             log.error("microphone failed to open: %s", self._mic.error)
@@ -95,7 +130,12 @@ class VoiceSession:
             return self.status()
 
         self._unsubscribe = self._mic.subscribe(self._on_frame)
-        log.info('microphone open, listening for "hey chris"')
+        # The gate's settings decide whether ordinary speech wakes the app, so
+        # a log that shows a session waking by itself must also show what it
+        # was gating at.
+        log.info('microphone open, listening for "hey chris" '
+                 "(gate: %d frames above %.2f)",
+                 self._wake.required_hot_frames, self._wake.threshold)
         self.error = None
         self._set_state(VoiceState.IDLE)
         return self.status()
@@ -120,7 +160,8 @@ class VoiceSession:
         if was_running:
             self._mic.stop()
         try:
-            return list_input_devices()
+            self._devices = list_input_devices()
+            return self._devices
         finally:
             if was_running:
                 self._mic.start()
@@ -133,14 +174,31 @@ class VoiceSession:
             self.stop()
         # Remember what was chosen, not just where it sat. The index is only
         # meaningful until the next device is plugged in or out.
-        name = next((d["name"] for d in list_input_devices()
-                     if d["index"] == index), None) if index is not None else None
+        #
+        # From the listing the picker was just shown, rather than a fresh scan:
+        # scanning re-initialises PortAudio, and doing that in the middle of a
+        # switch — with a Bluetooth headset changing profile at the same moment
+        # — is how this crashed. The picker cannot offer a device it did not
+        # list, so the cache is the same answer without the teardown.
+        name = self._device_name(index)
         self._mic = Microphone(device=index, device_name=name)
         log.info("microphone set to %s (index %s)", name or "default",
                  index if index is not None else "-")
         if was_running:
             return self.start()
         return self.status()
+
+    def _device_name(self, index: Optional[int]) -> Optional[str]:
+        """The name behind an index, from the last listing the picker took."""
+        if index is None:
+            return None
+        for device in self._devices or []:
+            if device["index"] == index:
+                return device["name"]
+        # Nothing cached — the caller never opened the picker. Scanning is safe
+        # here only because no switch is in flight.
+        return next((d["name"] for d in list_input_devices()
+                     if d["index"] == index), None)
 
     def status(self) -> dict:
         return {
@@ -191,13 +249,57 @@ class VoiceSession:
                 self._set_state(VoiceState.IDLE)
 
     def say(self, segments) -> bool:
-        """Read an answer aloud."""
+        """Read an answer aloud.
+
+        The gate is shut here, before playback starts, and not in the
+        `speaking` callback alone. That callback only arrives once the first
+        segment has been synthesised — about 200 ms later — and the session is
+        already back in IDLE by then, feeding frames to a live gate. Observed:
+        `WAKE score=0.807` in the same second as `speaking 1 segment(s)`, the
+        app hearing its own first word.
+        """
+        if not BARGE_IN:
+            self._wake.mute(seconds=120.0)
         return self._speaker.speak(segments)
 
     def hush(self) -> None:
         self._speaker.stop()
 
+    # -- the app's own voice -----------------------------------------------
+    def _on_speech(self, name: str, data: dict) -> None:
+        """Playback started or finished. The UI wants to know either way; the
+        wake gate has to."""
+        if not BARGE_IN:
+            if name == "speaking":
+                # Long enough to cover any answer. `spoken` ends it — this is
+                # only a backstop for a playback thread that dies without
+                # reporting, which would otherwise deafen the app for good.
+                self._wake.mute(seconds=120.0)
+            elif name == "spoken":
+                self._spoke_until = time.time()
+                self._rearm_wake()
+        elif name == "spoken":
+            self._spoke_until = time.time()
+        self._emit(name, data)
+
+    def _rearm_wake(self, tail: Optional[float] = None) -> None:
+        """Listen for "hey chris" again, after a short tail — the end of the
+        answer is still crossing the room when playback reports finished."""
+        tail = ECHO_TAIL_S if tail is None else tail
+        self._wake.unmute()
+        if tail > 0:
+            self._wake.mute(seconds=tail)
+
     def _on_wake(self, hit: Detection) -> None:
+        # Firing on the heels of the app's own voice is the signature of a
+        # microphone hearing the speakers. It should be impossible now; say so
+        # loudly if it happens anyway, rather than leaving it to be rediscovered
+        # from a screenshot of nonsense transcripts.
+        since = time.time() - self._spoke_until
+        if since < 1.5:
+            log.warning("wake fired %.1fs after the app stopped talking — if "
+                        "this repeats, the microphone is hearing the speakers",
+                        since)
         # A new question outranks the answer to the last one.
         self._speaker.stop()
         with self._lock:
@@ -239,5 +341,10 @@ class VoiceSession:
             # Unmute LAST. Answering takes about ten seconds, and the gate was
             # live throughout it — so a stray "hey chris" fired mid-answer and
             # left the session listening to nobody.
-            self._wake.unmute()
+            #
+            # And not at all while the answer is still being read out: `say()`
+            # returns as soon as playback starts, so this runs with the app
+            # still talking. `_on_speech` re-arms the gate when it stops.
+            if BARGE_IN or not self._speaker.speaking:
+                self._rearm_wake()
             self._set_state(VoiceState.IDLE)

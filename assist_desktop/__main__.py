@@ -11,6 +11,7 @@ from pathlib import Path
 
 import webview
 
+from . import commands
 from .api import Api
 from .bundle_server import BundleServer
 from .config import Config
@@ -37,7 +38,8 @@ def main() -> None:
     config = Config.load()
     if args.devkit:
         config = Config(devkit_url=args.devkit, timeout_s=config.timeout_s,
-                        top_k=config.top_k)
+                        top_k=config.top_k,
+                        starter_video=config.starter_video)
 
     if not args.dev and not (DIST / "index.html").is_file():
         raise SystemExit(
@@ -45,8 +47,18 @@ def main() -> None:
         )
 
     log.info("devkit    %s", config.devkit_url)
+    # Spoken orders go over the network, or straight into the file the
+    # simulator reads when it is this machine. Say which, once.
+    route, where = commands.delivery()
+    log.info("orders    %s (%s)", where,
+             "written here, no listener needed" if route == "local"
+             else "posted to the listener")
     log.info("log file  %s", log_file)
-    server = BundleServer(DIST, config.devkit_url, CACHE)
+    starter = Path(config.starter_video)
+    if not starter.is_file():
+        log.warning("starter video missing: %s", starter)
+    server = BundleServer(DIST, config.devkit_url, CACHE,
+                          media={"starter.mp4": starter})
     base_url = server.start()
     log.info("ui served %s", base_url)
     url = "http://localhost:5173" if args.dev else base_url

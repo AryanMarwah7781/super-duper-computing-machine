@@ -93,9 +93,19 @@ def _install_fake_v4(hits: list[dict], plan: FakePlan,
         spoken_segments=("Step 1. Park the machine.",),
     )
 
+    # Passage questions ("what is boomtrac pro") have no procedure to render,
+    # so the service asks the model for prose. It may decline, and then the
+    # passage is served verbatim -- the None return exercises that fallback.
+    synth_mod = types.ModuleType("assist.answer.synthesize")
+    synth_mod.synthesize = lambda q, chunks: FakeAnswer(  # type: ignore[attr-defined]
+        display_text="The BoomTrac Pro system controls boom tilt.",
+        spoken_segments=("The BoomTrac Pro system controls boom tilt.",),
+    )
+
     answer_pkg = types.ModuleType("assist.answer")
     answer_pkg.route = route_mod  # type: ignore[attr-defined]
     answer_pkg.render = render_mod  # type: ignore[attr-defined]
+    answer_pkg.synthesize = synth_mod  # type: ignore[attr-defined]
 
     assist_pkg = types.ModuleType("assist")
     assist_pkg.retrieve = retrieve_pkg  # type: ignore[attr-defined]
@@ -108,6 +118,7 @@ def _install_fake_v4(hits: list[dict], plan: FakePlan,
         "assist.answer": answer_pkg,
         "assist.answer.route": route_mod,
         "assist.answer.render": render_mod,
+        "assist.answer.synthesize": synth_mod,
     })
 
 
@@ -228,3 +239,47 @@ def test_an_unreadable_chunks_file_does_not_brick_a_loaded_index():
 def test_image_path_traversal_is_refused(service_procedure):
     with TestClient(service_procedure.app) as client:
         assert client.get("/images/../../etc/passwd").status_code == 404
+
+
+# -- passage questions get prose, not a raw passage ------------------------
+
+def test_a_synthesize_plan_synthesizes_rather_than_rendering():
+    """v3 answered "what is boomtrac pro" with "I don't know" -- it has no
+    procedure to render and the corpus has no glossary. v4 routes it to
+    synthesize, and the service must honour that: rendering the passage chunk
+    instead would serve raw manual text where prose was asked for."""
+    plan = FakePlan(kind="synthesize", chunk_ids=(412,),
+                    reason="prose synthesis from passage score=6.88")
+    module = _load_service([PROCEDURE_CHUNK], plan)
+    with TestClient(module.app) as client:
+        payload = client.post("/ask", json={"query": "what is boomtrac pro"}).json()
+    assert payload["plan"]["kind"] == "synthesize"
+    assert "BoomTrac Pro system" in payload["answer"]["display_text"]
+    assert "Step 1" not in payload["answer"]["display_text"], "not the renderer"
+
+
+def test_a_declining_model_falls_back_to_the_passage(monkeypatch):
+    """synthesize returns None when the model declines or is unreachable. The
+    passage is then served verbatim: unhelpful, but never invented."""
+    import sys
+    plan = FakePlan(kind="synthesize", chunk_ids=(412,), reason="prose synthesis")
+    module = _load_service([PROCEDURE_CHUNK], plan)
+    sys.modules["assist.answer.synthesize"].synthesize = lambda q, chunks: None
+    module.synthesize = lambda q, chunks: None
+    with TestClient(module.app) as client:
+        payload = client.post("/ask", json={"query": "what is boomtrac pro"}).json()
+    assert payload["answer"] is not None, "must fall back, not fail"
+    assert "Step 1" in payload["answer"]["display_text"], "the passage verbatim"
+
+
+def test_a_bare_image_filename_is_served(tmp_path, monkeypatch):
+    """`Image.image_path` is a bare filename, so IMAGES_ROOT must be the
+    directory that holds the files. It was rooted one level up at .../static
+    while the figures live in .../static/images, and every answer rendered
+    with its text but no pictures."""
+    plan = FakePlan(kind="cached", chunk_ids=(412,))
+    module = _load_service([PROCEDURE_CHUNK], plan)
+    (tmp_path / "fig.jpeg").write_bytes(b"\xff\xd8\xff\xe0jpeg")
+    module.IMAGES_ROOT = tmp_path
+    with TestClient(module.app) as client:
+        assert client.get("/images/fig.jpeg").status_code == 200

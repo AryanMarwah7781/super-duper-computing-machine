@@ -36,6 +36,9 @@ export type TurnDto = {
   /** A repaired query, when a word looks misheard. Empty when nothing matched
    * badly enough to guess at. */
   suggestion?: string
+  /** Served from this machine's cache: the same answer the board gave to this
+   * question before, without asking it again. */
+  recalled?: boolean
   timing: Record<string, number>
 }
 
@@ -52,6 +55,8 @@ export type UserDto = {
   created_at: string
   last_seen: string
   turns?: number
+  /** False until they have been shown how to bring the simulator up. */
+  onboarded?: boolean
 }
 
 export type HistoryEntry = {
@@ -206,4 +211,190 @@ export async function history(userId: string): Promise<HistoryEntry[]> {
   if (!api) return []
   const result = (await api.history(userId)) as { entries: HistoryEntry[] }
   return result.entries ?? []
+}
+
+// -- lessons ----------------------------------------------------------------
+
+export type LessonStepDto = {
+  header: string
+  body: string
+  /** Keyboard keys, for the lessons performed in Farming Simulator. */
+  keys?: string[]
+  icon?: { label?: string; image?: string; glyph?: string }
+  /** Present when the machine reports this step; absent when nothing the
+   * operator does here reaches the simulator's log. */
+  sync?: {
+    signals: string[]
+    condition: string
+    value: string | null
+    requires_step: number | null
+  }
+}
+
+export type LessonDto = {
+  id: string
+  name: string
+  summary: string
+  steps: LessonStepDto[]
+}
+
+export type LessonCategoryDto = { name: string; lessons: LessonDto[] }
+
+export type LessonRecord = { steps_done: number[]; last_opened: string | null }
+
+export type LessonCatalog = {
+  categories: LessonCategoryDto[]
+  progress: Record<string, LessonRecord>
+}
+
+export type OpenLessonResult = {
+  ok: boolean
+  lesson?: LessonDto
+  category?: string
+  steps_done?: number[]
+  /** True when the simulator's log is being watched: steps complete on their
+   * own. False means the operator ticks them off. */
+  sync?: boolean
+  detail?: string
+  error?: string
+}
+
+export async function lessons(userId: string): Promise<LessonCatalog> {
+  const api = bridge()
+  if (!api) return { categories: [], progress: {} }
+  return (await api.lessons(userId)) as LessonCatalog
+}
+
+export async function openLesson(
+  userId: string,
+  lessonId: string,
+): Promise<OpenLessonResult> {
+  const api = bridge()
+  if (!api) return { ok: false, error: "the Python bridge is not available" }
+  return (await api.open_lesson(userId, lessonId)) as OpenLessonResult
+}
+
+export async function closeLesson(): Promise<void> {
+  await bridge()?.close_lesson()
+}
+
+export async function completeStep(
+  userId: string,
+  lessonId: string,
+  stepIndex: number,
+): Promise<number[]> {
+  const api = bridge()
+  if (!api) return []
+  const result = (await api.complete_step(userId, lessonId, stepIndex)) as {
+    steps_done: number[]
+  }
+  return result.steps_done ?? []
+}
+
+export async function resetLesson(
+  userId: string,
+  lessonId: string,
+): Promise<void> {
+  await bridge()?.reset_lesson(userId, lessonId)
+}
+
+// -- getting started --------------------------------------------------------
+
+export type StarterVideo = { url: string; available: boolean; path: string }
+
+export async function starterVideo(): Promise<StarterVideo> {
+  const api = bridge()
+  if (!api) return { url: "/media/starter.mp4", available: false, path: "" }
+  return (await api.starter_video()) as StarterVideo
+}
+
+export async function markOnboarded(userId: string): Promise<void> {
+  await bridge()?.mark_onboarded(userId)
+}
+
+// -- admin ------------------------------------------------------------------
+
+export type AdminLesson = {
+  id: string
+  name: string
+  category: string
+  steps: number
+  /** True when the CommandARM reports this lesson's steps by itself. */
+  live: boolean
+}
+
+export type AdminOperator = {
+  id: string
+  name: string
+  created_at: string
+  last_seen: string
+  onboarded: boolean
+  turns: number
+  steps_done: number
+  steps_total: number
+  lessons: Record<
+    string,
+    { done: number; assigned: boolean; last_opened: string | null }
+  >
+}
+
+export type AdminOverview = {
+  ok: boolean
+  lessons: AdminLesson[]
+  operators: AdminOperator[]
+  refreshed_at: string
+  error?: string
+}
+
+export async function adminLogin(
+  username: string,
+  password: string,
+): Promise<{ ok: boolean; error: string | null }> {
+  const api = bridge()
+  if (!api) return { ok: false, error: "the Python bridge is not available" }
+  return (await api.admin_login(username, password)) as {
+    ok: boolean
+    error: string | null
+  }
+}
+
+export async function adminLogout(): Promise<void> {
+  await bridge()?.admin_logout()
+}
+
+export async function adminOverview(): Promise<AdminOverview> {
+  const api = bridge()
+  const empty = { ok: false, lessons: [], operators: [], refreshed_at: "" }
+  if (!api) return empty
+  return ((await api.admin_overview()) as AdminOverview) ?? empty
+}
+
+export async function adminCreateUser(
+  name: string,
+): Promise<{ ok: boolean; user: UserDto | null; error: string | null }> {
+  const api = bridge()
+  if (!api) return { ok: false, user: null, error: "no bridge" }
+  return (await api.admin_create_user(name)) as {
+    ok: boolean
+    user: UserDto | null
+    error: string | null
+  }
+}
+
+export async function adminDeleteUser(
+  userId: string,
+): Promise<{ ok: boolean; error: string | null }> {
+  const api = bridge()
+  if (!api) return { ok: false, error: "no bridge" }
+  return (await api.admin_delete_user(userId)) as {
+    ok: boolean
+    error: string | null
+  }
+}
+
+export async function adminSetAssignments(
+  userId: string,
+  lessonIds: string[],
+): Promise<void> {
+  await bridge()?.admin_set_assignments(userId, lessonIds)
 }

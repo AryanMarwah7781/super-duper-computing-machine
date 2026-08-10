@@ -7,6 +7,11 @@ import os
 
 import pytest
 
+# Importing config is what reads .env, and it must happen before the address is
+# looked up. Without this the address the app actually uses is invisible here
+# and the whole file silently skips -- which it did, so the only test that can
+# catch server/client drift was quietly not running.
+from assist_desktop import config as _config  # noqa: F401
 from assist_desktop.client.health import SUPPORTED_RENDER_VERSIONS
 from assist_desktop.client.transport import Transport
 

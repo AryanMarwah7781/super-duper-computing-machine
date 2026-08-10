@@ -1,4 +1,4 @@
-import { CheckCircle2, TriangleAlert } from "lucide-react"
+import { CheckCircle2, History, TriangleAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { TurnDto } from "@/lib/bridge"
@@ -82,15 +82,33 @@ export function AnswerView({
     )
   }
 
-  const nodes = parseDisplayText(turn.answer.display_text, turn.answer.images)
+  // The safety blocks are passed in because the corpus keeps the manual's
+  // column line breaks: a warning spans several physical lines, and only the
+  // structured block knows where it ends.
+  const nodes = parseDisplayText(
+    turn.answer.display_text,
+    turn.answer.images,
+    turn.answer.safety,
+  )
 
   return (
     <article className="mx-auto max-w-3xl px-6 py-6">
-      {turn.plan.kind === "synthesize" && (
-        <Badge variant="secondary" className="mb-4">
-          Excerpt from the manual, not a composed answer
-        </Badge>
-      )}
+      <div className="mb-4 flex flex-wrap gap-2 empty:mb-0">
+        {turn.plan.kind === "synthesize" && (
+          <Badge variant="secondary">
+            Excerpt from the manual, not a composed answer
+          </Badge>
+        )}
+        {/* Instant because it was asked before, not because the board got
+            fast. An operator comparing two answers should know which one
+            came off this machine. */}
+        {turn.recalled && (
+          <Badge variant="outline" className="gap-1.5">
+            <History className="size-3" />
+            Answered before — from this machine
+          </Badge>
+        )}
+      </div>
       {nodes.map((node, i) => {
         switch (node.kind) {
           case "safety":

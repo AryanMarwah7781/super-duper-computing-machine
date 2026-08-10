@@ -52,6 +52,10 @@ class HealthMonitor:
         self._thread: Optional[threading.Thread] = None
         self.state = ConnectionState.CONNECTING
         self.detail = ""
+        # Which pipeline is actually answering. Remembered from the last poll
+        # so nothing has to ask the board again to find out — the answer cache
+        # keys on it, and v3 and v4 answer the same question differently.
+        self.render_version = ""
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._loop, daemon=True)
@@ -67,6 +71,8 @@ class HealthMonitor:
             health, error = self._transport.health(), None
         except TransportError as e:
             health, error = None, e.detail
+        if health and health.get("render_version"):
+            self.render_version = health["render_version"]
         state, detail = next_state(self.state, health, error)
         if state is not self.state or detail != self.detail:
             self.state, self.detail = state, detail

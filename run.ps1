@@ -12,6 +12,8 @@
   .\run.ps1 -Fake           Run against the fixture replayer, no devkit needed
   .\run.ps1 -Build          Rebuild the interface first
   .\run.ps1 -Sensitive      Lower the wake-word threshold for this run
+  .\run.ps1 -Local          The simulator is on THIS machine: write its command
+                            file directly, no window_listener.py needed
 #>
 [CmdletBinding()]
 param(
@@ -19,7 +21,11 @@ param(
     [switch]$Fake,
     [switch]$Build,
     [switch]$Sensitive,
-    [string]$Devkit = "http://192.168.94.180:8090",
+    [switch]$Local,
+    # Empty on purpose. This used to default to the v3 address and was passed
+    # on every launch, so the flag's default beat .env and editing that file
+    # appeared to do nothing at all.
+    [string]$Devkit = "",
     [string]$Trigger,
     [string]$BoardPassword = $env:ASSIST_BOARD_PASSWORD
 )
@@ -27,6 +33,20 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 $Python = ".\.venv\Scripts\python.exe"
+
+# Resolve the devkit the way the app does: -Devkit wins, then .env, then a
+# built-in fallback. 8090 is the v3 pipeline, 8092 is v4.
+$DevkitFromEnv = $false
+if (-not $Devkit) {
+    if (Test-Path ".env") {
+        $line = Select-String -Path ".env" -Pattern '^\s*ASSIST_DEVKIT_URL\s*=' -ErrorAction SilentlyContinue
+        if ($line) {
+            $Devkit = ($line.Line -split '=', 2)[1].Trim()
+            $DevkitFromEnv = $true
+        }
+    }
+    if (-not $Devkit) { $Devkit = "http://192.168.94.180:8090" }
+}
 
 function Say($text, $colour = "Gray") { Write-Host $text -ForegroundColor $colour }
 function Head($text) { Write-Host ""; Write-Host $text -ForegroundColor Cyan }
@@ -122,11 +142,27 @@ foreach ($p in $stale) {
 if ($stale) { Start-Sleep -Seconds 2 }
 
 # ----------------------------------------------------------------- wake word
+# These are set as environment variables, and an environment variable set by
+# a previous -Sensitive run outlives that run: it is inherited by every later
+# run in the same window. One -Sensitive run then quietly gated every session
+# after it at 0.45 -- including ones started without the flag. Clear them, so
+# a plain run is a plain run. Set them in .env to make them stick.
+if (-not $Sensitive) {
+    if ($env:ASSIST_WAKE_THRESHOLD -or $env:ASSIST_WAKE_FRAMES) {
+        Head "Wake word"
+        Say  "  clearing a leftover sensitive-mode gate from this window" DarkGray
+    }
+    Remove-Item Env:ASSIST_WAKE_THRESHOLD -ErrorAction SilentlyContinue
+    Remove-Item Env:ASSIST_WAKE_FRAMES -ErrorAction SilentlyContinue
+}
 if ($Sensitive) {
-    $env:ASSIST_WAKE_THRESHOLD = "0.45"
+    $env:ASSIST_WAKE_THRESHOLD = "0.7"
     $env:ASSIST_WAKE_FRAMES = "2"
     Head "Wake word"
-    Say  "  sensitive mode: threshold 0.45, 2 frames (more false triggers)" Yellow
+    Say  "  sensitive mode: threshold 0.7, 2 frames" Yellow
+    Say  "  the default is 3 frames above 0.8 - the measured line between" DarkGray
+    Say  "  'hey chris' and 'the pressure is fine'. Below it, ordinary" DarkGray
+    Say  "  speech opens the microphone on its own." DarkGray
 }
 
 # ------------------------------------------------------------------ simulator
@@ -134,15 +170,24 @@ if ($Sensitive) {
 # overrides .env for one run; edit .env to make it stick.
 if ($Trigger) { $env:ASSIST_TRIGGER_URL = $Trigger }
 
+# On one machine there is no network to cross: the order goes straight into the
+# file the simulator reads, and window_listener.py does not need to be running.
+if ($Local) { $env:ASSIST_TRIGGER_MODE = "local" }
+
 # --------------------------------------------------------------------- start
 Head "Starting"
-Say  "  devkit    $Devkit"
+Say  ("  devkit    $Devkit" + $(if ($DevkitFromEnv) { "  (.env)" } else { "" }))
 $shownTrigger = $env:ASSIST_TRIGGER_URL
 if (-not $shownTrigger -and (Test-Path ".env")) {
     $line = Select-String -Path ".env" -Pattern '^\s*ASSIST_TRIGGER_URL\s*=' -ErrorAction SilentlyContinue
     if ($line) { $shownTrigger = ($line.Line -split '=', 2)[1].Trim() + "  (.env)" }
 }
 if (-not $shownTrigger) { $shownTrigger = "http://192.168.94.11:5000/trigger  (default)" }
+if ($env:ASSIST_TRIGGER_MODE -eq "local") {
+    $file = $env:ASSIST_COMMAND_FILE
+    if (-not $file) { $file = 'C:\simulator\voice_commands.json' }
+    $shownTrigger = "$file  (this machine - no listener needed)"
+}
 Say  "  simulator $shownTrigger"
 Say  "  log file  $PSScriptRoot\logs\app.log"
 Say  ""

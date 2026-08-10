@@ -24,6 +24,7 @@ from typing import Callable, Optional, Sequence
 import numpy as np
 
 from ..logs import get as get_logger
+from .mic import note_stream_closed, note_stream_opened
 
 log = get_logger("speak")
 
@@ -53,6 +54,7 @@ class Speaker:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
+        self._load_lock = threading.Lock()
 
     @property
     def available(self) -> bool:
@@ -63,6 +65,19 @@ class Speaker:
         return self._thread is not None and self._thread.is_alive()
 
     def load(self) -> bool:
+        """Loaded once, whatever asks.
+
+        A second load starting while the first is still warming up replaces
+        `self._voice` underneath a thread that is mid-`synthesize()`. That is
+        native code, so it does not raise — the process disappears. It is
+        reachable from the microphone picker, which restarts the session.
+        """
+        with self._load_lock:
+            if self._voice is not None:
+                return True
+            return self._load()
+
+    def _load(self) -> bool:
         if not self.voice_path.is_file():
             self.error = f"no voice at {self.voice_path}"
             return False
@@ -104,6 +119,12 @@ class Speaker:
             stream = sd.OutputStream(samplerate=self._sample_rate, channels=1,
                                      dtype="int16")
             stream.start()
+            # Counted, so the device picker cannot re-initialise PortAudio
+            # underneath playback. Only microphone streams used to be counted;
+            # an output stream was invisible to that guard, and terminating
+            # PortAudio under a live stream is an access violation in native
+            # code — libportaudio64bit.dll, 0xc0000005, no Python traceback.
+            note_stream_opened()
             for i, segment in enumerate(speakable):
                 if self._stop.is_set():
                     break
@@ -129,6 +150,8 @@ class Speaker:
                     stream.close()
                 except Exception:
                     pass
+                finally:
+                    note_stream_closed()
             if self.on_state:
                 self.on_state("spoken", {"interrupted": self._stop.is_set()})
 

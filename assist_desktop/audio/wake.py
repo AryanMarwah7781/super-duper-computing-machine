@@ -53,11 +53,19 @@ DEFAULT_MODEL_DIR = Path(
 )
 
 # Tunable without editing code:
-#   $env:ASSIST_WAKE_THRESHOLD = "0.5"
+#   $env:ASSIST_WAKE_THRESHOLD = "0.7"
 #   $env:ASSIST_WAKE_FRAMES    = "2"
 # The measured values came from synthetic speech; a real voice in a real room
 # will want different ones, and tools/voice_debug.py shows what yours scores.
-SCORE_THRESHOLD = float(os.environ.get("ASSIST_WAKE_THRESHOLD", "0.6"))
+#
+# 0.8, because that is the number the measurement above is about: the
+# separation is "frames above 0.8", and frames are counted above THIS value.
+# It shipped at 0.6, which quietly threw the discrimination away — an impostor
+# holding two frames above 0.8 holds five or six above 0.6, clears three, and
+# fires. That is an app that wakes on "start spraying", on the answer it just
+# gave, and on the room. Lower this only with scores from voice_debug.py in
+# front of you.
+SCORE_THRESHOLD = float(os.environ.get("ASSIST_WAKE_THRESHOLD", "0.8"))
 REQUIRED_HOT_FRAMES = int(os.environ.get("ASSIST_WAKE_FRAMES", "3"))
 REFRACTORY_S = 2.0            # ignore further detections for this long
 # Report runs that got close but did not fire, so the log can answer "why did
@@ -95,13 +103,26 @@ class WakeWord:
         self._peak = 0.0
         self._muted_until = 0.0
         self._lock = threading.Lock()
+        self._load_lock = threading.Lock()
 
     @property
     def available(self) -> bool:
         return self._model is not None
 
     def load(self) -> bool:
-        """Load the three-stage chain: mel -> embedding -> hey_chris."""
+        """Load the three-stage chain: mel -> embedding -> hey_chris.
+
+        Once. Switching microphone restarts the session, and building a second
+        openwakeword model beside a live one — while PortAudio is being torn
+        down and re-initialised for the device scan — is three lots of native
+        code reinitialising at once.
+        """
+        with self._load_lock:
+            if self._model is not None:
+                return True
+            return self._load()
+
+    def _load(self) -> bool:
         needed = ["hey_chris.onnx", "melspectrogram.onnx", "embedding_model.onnx"]
         missing = [f for f in needed if not (self.model_dir / f).is_file()]
         if missing:

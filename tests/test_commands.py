@@ -248,3 +248,129 @@ def test_mishearings_do_not_swallow_unrelated_speech():
     assert match("spring") is None
     assert match("check the spring tension") is None
     assert match("is it spring") is None
+
+
+# -- one machine needs no listener -----------------------------------------
+#
+# window_listener.py is a Flask server whose entire job is to append the order
+# to C:\simulator\voice_commands.json. When the app is on that same machine,
+# the network hop, the server and its console window stand between a process
+# and a file it can already write.
+
+import json as _json
+
+from assist_desktop import commands as c
+
+
+@pytest.fixture
+def local(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASSIST_TRIGGER_MODE", "local")
+    monkeypatch.setenv("ASSIST_COMMAND_FILE", str(tmp_path / "voice_commands.json"))
+    c.is_this_machine.cache_clear()
+    return tmp_path / "voice_commands.json"
+
+
+def test_a_local_order_lands_in_the_file_the_simulator_reads(local):
+    assert c.execute("start_spraying").ok is True
+    entries = _json.loads(local.read_text(encoding="utf-8"))
+    assert [e["command"] for e in entries] == ["Turn on Spraying"]
+
+
+def test_a_local_order_is_shaped_exactly_like_the_listener_wrote_it(local):
+    """The simulator side is unchanged and is still reading these keys."""
+    c.execute("fold_boom")
+    entry = _json.loads(local.read_text(encoding="utf-8"))[0]
+    assert set(entry) == {"timestamp", "command", "received_at"}
+    assert entry["command"] == "Fold the Boom"
+
+
+def test_local_orders_append_rather_than_replace(local):
+    local.write_text(_json.dumps([{"timestamp": "t", "command": "Turn on Spraying",
+                                   "received_at": "r"}]), encoding="utf-8")
+    c.execute("stop_spraying")
+    entries = _json.loads(local.read_text(encoding="utf-8"))
+    assert [e["command"] for e in entries] == ["Turn on Spraying", "Turn off Spraying"]
+
+
+def test_a_missing_command_file_is_created(local):
+    assert not local.exists()
+    assert c.execute("fold_boom").ok is True
+    assert local.is_file()
+
+
+def test_a_corrupt_command_file_does_not_lose_the_order(local):
+    local.write_text("{ half a write", encoding="utf-8")
+    assert c.execute("fold_boom").ok is True
+    assert _json.loads(local.read_text(encoding="utf-8"))[0]["command"] == "Fold the Boom"
+
+
+def test_a_local_order_never_touches_the_network(local, monkeypatch):
+    def explode(*a, **k):
+        raise AssertionError("posted to a listener that does not need to exist")
+    monkeypatch.setattr("httpx.post", explode)
+    assert c.execute("start_spraying").ok is True
+
+
+def test_an_unwritable_file_is_reported_not_claimed(local, monkeypatch):
+    monkeypatch.setattr(c.Path, "write_text",
+                        lambda *a, **k: (_ for _ in ()).throw(PermissionError("held")))
+    result = c.execute("start_spraying")
+    assert result.ok is False
+    assert "not" in result.spoken.lower(), "must not claim the sprayer started"
+
+
+# -- choosing the route ----------------------------------------------------
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1:5000/trigger",
+    "http://localhost:5000/trigger",
+])
+def test_a_loopback_address_is_this_machine(url):
+    c.is_this_machine.cache_clear()
+    assert c.is_this_machine(url) is True
+
+
+def test_this_machines_own_hostname_is_this_machine():
+    import socket
+    c.is_this_machine.cache_clear()
+    assert c.is_this_machine(f"http://{socket.gethostname()}:5000/trigger") is True
+
+
+def test_another_machine_is_not_this_machine():
+    c.is_this_machine.cache_clear()
+    assert c.is_this_machine("http://192.0.2.10:5000/trigger") is False
+
+
+def test_an_address_that_will_not_resolve_stays_on_the_network(monkeypatch):
+    """Guessing local would write a file nobody reads and report success."""
+    c.is_this_machine.cache_clear()
+    assert c.is_this_machine("http://no-such-host.invalid:5000/trigger") is False
+
+
+def test_auto_sends_a_remote_address_over_the_network(monkeypatch):
+    monkeypatch.delenv("ASSIST_TRIGGER_MODE", raising=False)
+    monkeypatch.setenv("ASSIST_TRIGGER_URL", "http://192.0.2.10:5000/trigger")
+    c.is_this_machine.cache_clear()
+    assert c.delivery() == ("http", "http://192.0.2.10:5000/trigger")
+
+
+def test_auto_writes_the_file_when_the_listener_would_be_on_this_machine(monkeypatch, tmp_path):
+    monkeypatch.delenv("ASSIST_TRIGGER_MODE", raising=False)
+    monkeypatch.setenv("ASSIST_TRIGGER_URL", "http://127.0.0.1:5000/trigger")
+    monkeypatch.setenv("ASSIST_COMMAND_FILE", str(tmp_path / "voice_commands.json"))
+    c.is_this_machine.cache_clear()
+    assert c.delivery() == ("local", str(tmp_path / "voice_commands.json"))
+
+
+def test_http_can_be_forced_even_on_one_machine(monkeypatch):
+    """A listener already running locally stays usable — some setups want the
+    server in the loop."""
+    monkeypatch.setenv("ASSIST_TRIGGER_MODE", "http")
+    monkeypatch.setenv("ASSIST_TRIGGER_URL", "http://127.0.0.1:5000/trigger")
+    c.is_this_machine.cache_clear()
+    assert c.delivery()[0] == "http"
+
+
+def test_an_unknown_mode_falls_back_to_auto(monkeypatch):
+    monkeypatch.setenv("ASSIST_TRIGGER_MODE", "sideways")
+    assert c.trigger_mode() == "auto"

@@ -61,6 +61,22 @@ class TurnLog:
             "timing": {},
         })
 
+    def append_recall(self, query: str, turn: dict, source: str) -> None:
+        """An answer served from this machine's cache. Logged like any other
+        turn, and marked, so the log still answers "how did they get that?"
+        — and so a run of instant answers is not mistaken for a fast board."""
+        self._write({
+            "ts": self._now(),
+            "query": query,
+            "source": source,
+            "kind": turn.get("plan", {}).get("kind", "?"),
+            "reason": turn.get("plan", {}).get("reason", ""),
+            "recalled": True,
+            "chunk_ids": list(turn.get("plan", {}).get("chunk_ids", [])),
+            "candidates": [],
+            "timing": turn.get("timing", {}),
+        })
+
     def append_error(self, query: str, detail: str, source: str) -> None:
         self._write({
             "ts": self._now(),

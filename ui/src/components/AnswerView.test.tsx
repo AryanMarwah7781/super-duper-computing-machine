@@ -139,3 +139,22 @@ describe("chat", () => {
     expect(container.textContent).not.toContain("Manual page")
   })
 })
+
+describe("a recalled answer", () => {
+  it("says the answer came off this machine", () => {
+    // Instant because it was asked before, not because the board got fast.
+    render(<AnswerView turn={{ ...PROCEDURE, recalled: true }} />)
+    expect(screen.getByText(/answered before/i)).toBeDefined()
+  })
+
+  it("says nothing when the board answered it just now", () => {
+    render(<AnswerView turn={PROCEDURE} />)
+    expect(screen.queryByText(/answered before/i)).toBeNull()
+  })
+
+  it("still renders the answer itself", () => {
+    render(<AnswerView turn={{ ...PROCEDURE, recalled: true }} />)
+    expect(screen.getByText(/Park the machine/)).toBeDefined()
+    expect(screen.getByText(/Keep bystanders clear/)).toBeDefined()
+  })
+})

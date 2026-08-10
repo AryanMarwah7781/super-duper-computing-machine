@@ -5,6 +5,7 @@ import { LttsLogo } from "./Brand"
 
 export function NavBar({
   user,
+  admin = false,
   canGoBack,
   canGoForward,
   onBack,
@@ -13,6 +14,8 @@ export function NavBar({
   title,
 }: {
   user: UserDto | null
+  /** Signed in as the trainer rather than as an operator. */
+  admin?: boolean
   canGoBack: boolean
   canGoForward: boolean
   onBack: () => void
@@ -49,9 +52,11 @@ export function NavBar({
           without competing with the answer. */}
       <LttsLogo className="ml-6 hidden h-9 w-auto opacity-90 sm:block" />
 
-      {user && (
+      {(user || admin) && (
         <div className="ml-auto flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">{user.name}</span>
+          <span className="text-sm text-muted-foreground">
+            {user ? user.name : "Admin"}
+          </span>
           <Button
             variant="ghost"
             size="icon"

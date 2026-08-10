@@ -18,6 +18,7 @@ Two constraints shape this file:
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 import threading
 import time
@@ -29,12 +30,20 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-V4_ROOT = Path("/media/nvme/ari_jd/v4")
-IMAGES_ROOT = Path("/media/nvme/ari_jd/jd-chatbot-v3/static")
+# The board's layout. ari_jd is the old v2.2 tree and has no v4; everything
+# this project deploys lives under ari_assist, where jd-chatbot-v3 is a symlink
+# to the v3 directory that already holds the embedder, reranker and images.
+V4_ROOT = Path(os.environ.get("V4_ROOT", "/media/nvme/ari_assist/v4"))
+# ...static/images, not ...static. `Image.image_path` is a bare filename, so
+# the root has to be the directory holding the files; rooted one level up,
+# every figure 404s and answers render with the text but no pictures.
+IMAGES_ROOT = Path(os.environ.get(
+    "V4_IMAGES", "/media/nvme/ari_assist/jd-chatbot-v3/static/images"))
 sys.path.insert(0, str(V4_ROOT))
 
 from assist.answer.render import render          # noqa: E402
 from assist.answer.route import route            # noqa: E402
+from assist.answer.synthesize import synthesize  # noqa: E402
 from assist.retrieve import search as S          # noqa: E402
 
 _state: dict = {"ready": False, "error": None, "started": time.time(),
@@ -112,8 +121,19 @@ def ask(req: AskRequest) -> dict:
 
         answer = None
         if plan.kind != "oos" and plan.chunk_ids:
-            chunk = S._load()["by_id"][plan.chunk_ids[0]]
-            answer = asdict(render(chunk))
+            by_id = S._load()["by_id"]
+            chunk = by_id[plan.chunk_ids[0]]
+            if plan.kind == "synthesize":
+                # Questions with no procedure to render -- "what is boomtrac
+                # pro". The model writes prose from the retrieved passages and
+                # may decline, in which case the passage is served verbatim:
+                # unhelpful, never invented. Images and citations come from the
+                # chunks, so it cannot drop a figure either.
+                built = synthesize(req.query, [by_id[c] for c in plan.chunk_ids
+                                               if c in by_id])
+                answer = asdict(built or render(chunk))
+            else:
+                answer = asdict(render(chunk))
         t_render = time.perf_counter()
 
     return {

@@ -1,0 +1,76 @@
+{
+  "_why": "Questions worth having answered before anyone asks them. tools/warm_cache.py asks each one once and keeps the answer, so nobody waits 6-110 seconds on a question that was always going to be asked.",
+  "_source": "QUESTIONS in the repo root: 30 hand-graded against the v4 index on 2026-08-08, grouped as they are there.",
+  "groups": {
+    "Sprayer — procedures": [
+      "how do i start spraying",
+      "how do i change the spray pressure",
+      "how do i turn off a boom section",
+      "how do i prime the sprayer",
+      "how do i rinse the boom",
+      "how do i check the nozzle flow",
+      "how do i fill the solution tank",
+      "how do i drain the solution tank",
+      "how do i rinse the tank",
+      "how do i use the rinse system",
+      "how do i clean the strainers",
+      "how do i calibrate the flow meter"
+    ],
+    "Boom — procedures": [
+      "how do i unfold the boom",
+      "how do i fold the boom",
+      "how do i set the boom height",
+      "how do i fold one side of the boom",
+      "how do i fold the left side of the sprayer",
+      "how do i adjust the breakaway tension",
+      "what do i do if the boom wont fold"
+    ],
+    "Definitions": [
+      "what is boomtrac pro",
+      "what is boom control mode",
+      "what is boom return to height",
+      "what is the spray system master switch",
+      "what is a breakaway",
+      "what is boom air purge"
+    ],
+    "Other chapters": [
+      "how do i change the engine oil",
+      "how do i check the engine coolant",
+      "how often should i grease the machine",
+      "how do i park the machine safely",
+      "how do i prepare the machine for storage"
+    ]
+  },
+  "questions": [
+    "how do i start spraying",
+    "how do i change the spray pressure",
+    "how do i turn off a boom section",
+    "how do i prime the sprayer",
+    "how do i rinse the boom",
+    "how do i check the nozzle flow",
+    "how do i fill the solution tank",
+    "how do i drain the solution tank",
+    "how do i rinse the tank",
+    "how do i use the rinse system",
+    "how do i clean the strainers",
+    "how do i calibrate the flow meter",
+    "how do i unfold the boom",
+    "how do i fold the boom",
+    "how do i set the boom height",
+    "how do i fold one side of the boom",
+    "how do i fold the left side of the sprayer",
+    "how do i adjust the breakaway tension",
+    "what do i do if the boom wont fold",
+    "what is boomtrac pro",
+    "what is boom control mode",
+    "what is boom return to height",
+    "what is the spray system master switch",
+    "what is a breakaway",
+    "what is boom air purge",
+    "how do i change the engine oil",
+    "how do i check the engine coolant",
+    "how often should i grease the machine",
+    "how do i park the machine safely",
+    "how do i prepare the machine for storage"
+  ]
+}

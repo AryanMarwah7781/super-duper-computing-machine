@@ -7,21 +7,47 @@ invisible. Every method returns a result envelope instead.
 """
 from __future__ import annotations
 
+import os
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import commands, llm, smalltalk
+from . import commands, lessons, llm, smalltalk
 from .client.health import ConnectionState, HealthMonitor
+from .db import Store, now as db_now
 from .logs import get as get_logger
 from .client.transport import StaleResponse, Transport, TransportError
 from .config import Config
 from .models.wire import Turn
 from .turnlog import TurnLog
-from .users import UserStore
 
 Emit = Callable[[str, dict], None]
 log = get_logger("api")
+
+# The trainer's own login, which is not an operator badge. There are no roles
+# and no second admin: one shop floor, one person who sets up the training.
+# Both are overridable, so a site that cares can change them without a build.
+ADMIN_USER = os.environ.get("ASSIST_ADMIN_USER", "admin")
+ADMIN_PASSWORD = os.environ.get("ASSIST_ADMIN_PASSWORD", "admin")
+
+
+def recall_delay_s() -> float:
+    """How long a remembered answer should take to come back.
+
+    A cache hit is ready in about six milliseconds, and an answer that appears
+    the instant the question lands reads as though nothing happened — no
+    search, no thinking, possibly no answer to the question actually asked.
+    Holding it for a couple of seconds is not a fake search; the wait is the
+    only part of the original that was worth keeping.
+
+    Read per call so it can be tuned without a restart, and set to 0 to hand
+    answers back as fast as they are found.
+    """
+    try:
+        return max(0.0, float(os.environ.get("ASSIST_RECALL_DELAY_S", "2.5")))
+    except ValueError:
+        return 2.5
 
 
 def _command_turn(result: "commands.CommandResult") -> dict:
@@ -72,17 +98,27 @@ def _turn_to_dict(turn: Turn) -> dict:
 class Api:
     def __init__(self, config: Config, emit: Emit,
                  log_path: Optional[Path] = None,
-                 profiles_path: Optional[Path] = None) -> None:
+                 db_path: Optional[Path] = None,
+                 catalog_path: Optional[Path] = None) -> None:
         self._config = config
         self._emit = emit
         self._transport = Transport(config.devkit_url, config.timeout_s)
         self._log = TurnLog(log_path or Path("turns.jsonl"))
-        self._users = UserStore(profiles_path or Path("data/profiles.json"))
+        db_path = Path(db_path or "data/assist.db")
+        # Whatever the JSON era left behind, imported once. See db.py.
+        self._users = Store(db_path,
+                            legacy_profiles=db_path.parent / "profiles.json",
+                            legacy_progress=db_path.parent / "lesson_progress.json")
         self._monitor = HealthMonitor(self._transport, self._on_connection_change)
         # Voice asks originate in the audio thread, which has no idea who is
         # signed in — the UI tells us on sign-in and we remember.
         self._active_user = ""
         self._voice = None
+        self._catalog = lessons.load_catalog(catalog_path
+                                             or lessons.DEFAULT_CATALOG)
+        self._tailer: Optional[lessons.LogTailer] = None
+        self._open_lesson = ""
+        self._admin = False
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -90,6 +126,7 @@ class Api:
 
     def stop(self) -> None:
         self._monitor.stop()
+        self.close_lesson()
 
     def _on_connection_change(self, state: ConnectionState, detail: str) -> None:
         log.info("devkit %s - %s", state.value, detail)
@@ -150,6 +187,23 @@ class Api:
         # have to match against it.
         query = smalltalk.strip_wake_word(query) or query
 
+        # Asked before, on this pipeline? Then it is already answered. The
+        # board takes six seconds to retrieve and up to thirty to synthesise;
+        # this is the same answer, from this machine, in about a millisecond.
+        asked_at = time.perf_counter()
+        recalled = self._recall(query)
+        if recalled is not None:
+            waited = self._pace(asked_at)
+            recalled["timing"] = {**recalled["timing"], "total_ms": waited}
+            self._log.append_recall(query, recalled, source=source)
+            if user_id:
+                self._users.record(user_id, query,
+                                   recalled["plan"]["kind"], source,
+                                   turn=recalled)
+            return {"ok": True, "turn": recalled, "error": None,
+                    "recalled": True}
+
+        started = time.perf_counter()
         try:
             turn = self._transport.ask(query, top_k=self._config.top_k)
         except StaleResponse:
@@ -181,12 +235,69 @@ class Api:
         log.info("  %s in %sms - %s", turn.plan.kind,
                  turn.timing.get("total_ms", "?"), top or "-")
         payload = _turn_to_dict(turn)
+        self._remember(query, turn, payload,
+                       took_ms=int((time.perf_counter() - started) * 1000))
         # The whole turn is stored, so re-opening a past question re-renders the
         # answer as it was given rather than re-asking a corpus that may differ.
         if user_id:
             self._users.record(user_id, query, turn.plan.kind, source,
                                turn=payload)
         return {"ok": True, "turn": payload, "error": None}
+
+    # -- answers already given ---------------------------------------------
+    def _service_identity(self) -> tuple[str, str]:
+        """Which pipeline answered. An answer from v3 must never be served as
+        though it came from v4, so both halves are part of the cache key."""
+        return self._config.devkit_url, self._monitor.render_version or "?"
+
+    def _pace(self, asked_at: float) -> int:
+        """Hold a remembered answer back to the pace of a real one, and report
+        how long it actually took. The timing is not padded to look like the
+        original search — six seconds is claimed nowhere; what is reported is
+        the wait that happened."""
+        target = recall_delay_s()
+        elapsed = time.perf_counter() - asked_at
+        if elapsed < target:
+            time.sleep(target - elapsed)
+        return int((time.perf_counter() - asked_at) * 1000)
+
+    def _recall(self, query: str) -> Optional[dict]:
+        service, version = self._service_identity()
+        found = self._users.recall(query, service, version)
+        if found is None:
+            return None
+        turn = found["turn"]
+        # Say where it came from, and how long it took the first time. Timing
+        # must not claim six seconds for something that took no time at all.
+        turn["plan"] = {**turn["plan"],
+                        "reason": f"{turn['plan']['reason']} · recalled"}
+        turn["timing"] = {**turn.get("timing", {}),
+                          "first_answered_ms": found["took_ms"]}
+        turn["recalled"] = True
+        log.info("  recalled (first answer took %sms)", found["took_ms"])
+        return turn
+
+    def _remember(self, query: str, turn: Turn, payload: dict,
+                  took_ms: int) -> None:
+        """Keep answers, not verdicts. An `oos` is the corpus failing to match
+        today and may match tomorrow; storing it would make a miss permanent.
+        Errors are not answers at all."""
+        if turn.plan.kind not in ("cached", "synthesize") or not turn.answer:
+            return
+        service, version = self._service_identity()
+        self._users.remember(query, service, version, turn.plan.kind,
+                             payload, took_ms=took_ms)
+
+    def forget_answers(self, all_services: bool = False) -> dict:
+        """Empty the cache. Use after the corpus on the board changes — the
+        client cannot see that happen."""
+        service, _ = self._service_identity()
+        removed = self._users.forget_answers(None if all_services else service)
+        log.info("cache cleared: %d answer(s)", removed)
+        return {"ok": True, "removed": removed}
+
+    def cached_answers(self) -> dict:
+        return {"ok": True, "answers": self._users.cached_answers()}
 
     # -- who is at the screen ---------------------------------------------
     def list_users(self) -> dict:
@@ -205,6 +316,217 @@ class Api:
     def clear_history(self, user_id: str) -> dict:
         self._users.clear_history(user_id)
         return {"ok": True}
+
+    def mark_onboarded(self, user_id: str) -> dict:
+        """They have been shown how to bring the simulator up. Once is enough."""
+        self._users.mark_onboarded(user_id)
+        return {"ok": True}
+
+    # -- lessons -----------------------------------------------------------
+    def lessons(self, user_id: str = "") -> dict:
+        """The catalog this operator has been assigned, plus their record of
+        it. A lesson the admin withheld is not listed — an operator should not
+        see a locked door, only the lessons that are theirs."""
+        withheld = self._users.assignments(user_id) if user_id else set()
+        categories = []
+        for category in self._catalog.get("categories", []):
+            allowed = [lesson for lesson in category.get("lessons", [])
+                       if lesson.get("id") not in withheld]
+            if allowed:
+                categories.append({**category, "lessons": allowed})
+        return {"ok": True, "categories": categories,
+                "progress": self._users.lesson_summary(user_id)}
+
+    def open_lesson(self, user_id: str, lesson_id: str) -> dict:
+        """Open a lesson and, where its steps are wired to signals, start
+        watching the simulator's log so they complete on their own."""
+        lesson, category = lessons.find_lesson(self._catalog, lesson_id)
+        if lesson is None:
+            return {"ok": False, "error": f"no lesson called {lesson_id!r}"}
+
+        self.close_lesson()
+        self._users.open_lesson(user_id, lesson_id)
+        self._open_lesson = lesson_id
+        done = self._users.steps_done(user_id, lesson_id)
+        result = {"ok": True, "lesson": lesson, "category": category,
+                  "steps_done": done, "sync": False, "detail": ""}
+
+        triggers = lessons.triggers_for(lesson)
+        if not triggers:
+            result["detail"] = ("This lesson is performed in Farming "
+                                "Simulator, which does not report back. "
+                                "Tick each step off as you go.")
+            return result
+
+        path = lessons.sim_log_path(self._catalog)
+        if not path or not Path(path).is_file():
+            result["detail"] = (f"The simulator log is not at {path or '(unset)'}"
+                                " — steps will not complete on their own. "
+                                "Start the Connections App, or tick them off "
+                                "by hand.")
+            log.warning("lesson %s opened without a log at %s", lesson_id, path)
+            return result
+
+        watcher = lessons.StepWatcher(triggers)
+        # Resume rather than restart: a step done in an earlier session stays
+        # done, and ordered steps that wait on it can fire again.
+        watcher.done.update(done)
+        self._tailer = lessons.LogTailer(
+            path, watcher,
+            on_step=lambda index: self._on_lesson_step(user_id, lesson_id, index))
+        self._tailer.start()
+        log.info("lesson %s open, watching %s", lesson_id, path)
+        result["sync"] = True
+        result["detail"] = ("Watching the CommandARM. Steps complete as you "
+                            "operate the console.")
+        return result
+
+    def _on_lesson_step(self, user_id: str, lesson_id: str, index: int) -> None:
+        """Called from the tailer thread. Nobody is awaiting a promise for
+        this, so it goes out as an event."""
+        self._users.complete_step(user_id, lesson_id, index)
+        log.info("lesson %s step %d complete", lesson_id, index)
+        self._emit("lesson_step", {"lesson_id": lesson_id, "step_index": index,
+                                   "source": "machine"})
+
+    def close_lesson(self) -> dict:
+        if self._tailer is not None:
+            self._tailer.stop()
+            self._tailer = None
+        self._open_lesson = ""
+        return {"ok": True}
+
+    def complete_step(self, user_id: str, lesson_id: str,
+                      step_index: int) -> dict:
+        """Tick a step off by hand — for lessons played in the simulator,
+        where nothing reaches the log, and for a signal the log missed."""
+        self._users.complete_step(user_id, lesson_id, int(step_index))
+        return {"ok": True,
+                "steps_done": self._users.steps_done(user_id, lesson_id)}
+
+    def reset_lesson(self, user_id: str, lesson_id: str) -> dict:
+        self._users.reset_lesson(user_id, lesson_id)
+        # A lesson being watched has its own idea of what is done. Reopen it
+        # so the log starts marking steps from the beginning again.
+        if self._open_lesson == lesson_id and self._tailer is not None:
+            self.open_lesson(user_id, lesson_id)
+        return {"ok": True, "steps_done": []}
+
+    # -- getting started ----------------------------------------------------
+    def starter_video(self) -> dict:
+        """The recording that shows how to bring the simulator up. Served
+        from where it was recorded, over 127.0.0.1 — see bundle_server."""
+        path = Path(self._config.starter_video)
+        available = path.is_file()
+        if not available:
+            log.warning("starter video missing: %s", path)
+        return {"ok": True, "url": "/media/starter.mp4",
+                "available": available, "path": str(path)}
+
+    # -- the admin -----------------------------------------------------------
+    def admin_login(self, username: str, password: str) -> dict:
+        """One shared trainer login. The password is checked here and never
+        travels to the UI, which only ever learns yes or no."""
+        ok = ((username or "").strip().lower() == ADMIN_USER.lower()
+              and (password or "") == ADMIN_PASSWORD)
+        self._admin = ok
+        log.info("admin sign-in %s", "accepted" if ok else "REFUSED")
+        return {"ok": ok, "error": None if ok else "Wrong username or password."}
+
+    def admin_logout(self) -> dict:
+        self._admin = False
+        return {"ok": True}
+
+    def _refuse(self) -> dict:
+        return {"ok": False, "error": "not signed in as admin"}
+
+    def _lesson_index(self) -> list[dict]:
+        """The catalog flattened to what the admin screen needs: one row per
+        lesson, with the category it belongs to and how many steps it has."""
+        out = []
+        for category in self._catalog.get("categories", []):
+            for lesson in category.get("lessons", []):
+                out.append({
+                    "id": lesson["id"],
+                    "name": lesson["name"],
+                    "category": category.get("name", ""),
+                    "steps": len(lesson.get("steps", [])),
+                    "live": any(step.get("sync")
+                                for step in lesson.get("steps", [])),
+                })
+        return out
+
+    def admin_overview(self) -> dict:
+        """Everyone, everything, in one call — this is what the refresh button
+        re-reads. Two queries for the whole roster rather than two per
+        operator, because the screen shows them all at once."""
+        if not self._admin:
+            return self._refuse()
+        index = self._lesson_index()
+        progress = self._users.all_progress()
+        withheld = self._users.all_assignments()
+
+        operators = []
+        for user in self._users.list_users():
+            done_by_lesson = progress.get(user["id"], {})
+            not_theirs = withheld.get(user["id"], set())
+            summary = self._users.lesson_summary(user["id"])
+            rows = {}
+            done_total = 0
+            steps_total = 0
+            for lesson in index:
+                assigned = lesson["id"] not in not_theirs
+                done = len(done_by_lesson.get(lesson["id"], []))
+                rows[lesson["id"]] = {
+                    "done": done,
+                    "assigned": assigned,
+                    "last_opened": summary.get(lesson["id"], {}).get("last_opened"),
+                }
+                # Only assigned lessons count towards someone's progress. A
+                # trainee held back from five lessons is not 30% behind.
+                if assigned:
+                    done_total += done
+                    steps_total += lesson["steps"]
+            operators.append({**user, "lessons": rows,
+                              "steps_done": done_total,
+                              "steps_total": steps_total})
+
+        return {"ok": True, "lessons": index, "operators": operators,
+                "refreshed_at": db_now()}
+
+    def admin_create_user(self, name: str) -> dict:
+        if not self._admin:
+            return self._refuse()
+        try:
+            user = self._users.create_user(name)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        log.info("admin created operator %s", user["id"])
+        return {"ok": True, "user": user, "error": None}
+
+    def admin_delete_user(self, user_id: str) -> dict:
+        """Remove an operator and everything recorded about them. If they are
+        the one signed in at the machine, sign them out too — a deleted
+        operator must not keep answering questions into a profile that is
+        gone."""
+        if not self._admin:
+            return self._refuse()
+        removed = self._users.delete_user(user_id)
+        if removed and self._active_user == user_id:
+            self._active_user = ""
+        log.info("admin deleted operator %s (%s)", user_id,
+                 "gone" if removed else "no such operator")
+        return {"ok": removed,
+                "error": None if removed else "no such operator"}
+
+    def admin_set_assignments(self, user_id: str, lesson_ids) -> dict:
+        """Which lessons this operator is meant to work through."""
+        if not self._admin:
+            return self._refuse()
+        every = [lesson["id"] for lesson in self._lesson_index()]
+        self._users.set_assignments(user_id, list(lesson_ids or []), every)
+        return {"ok": True, "assigned": sorted(
+            set(every) - self._users.assignments(user_id))}
 
     # -- voice -------------------------------------------------------------
     def set_active_user(self, user_id: str) -> dict:

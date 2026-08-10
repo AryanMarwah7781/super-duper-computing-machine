@@ -1,0 +1,316 @@
+{
+  "log_path": "C:/simulator/Sprayer_VC_v6/net8.0-windows/log.txt",
+  "categories": [
+    {
+      "name": "Sprayer Lessons",
+      "lessons": [
+        {
+          "id": "spray",
+          "name": "Spray Lesson — R4045",
+          "summary": "Self-propelled R4045: walk to it, get in, fill the tank, drive onto the field, unfold the booms and spray.",
+          "steps": [
+            {
+              "header": "Disengage the Parking Brake",
+              "body": "On the CommandARM console, press the Parking Brake button to release it before moving the R4045.",
+              "icon": {
+                "label": "PARK BRAKE",
+                "image": "lesson-icons/parking-brake.jpeg"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_AIC_ParkBrake"
+                ],
+                "condition": "equals",
+                "value": "0",
+                "requires_step": null
+              }
+            },
+            {
+              "header": "Turn On Engine Speed",
+              "body": "Press the High Idle button (rabbit icon, n/min) on the console to raise the engine RPM so the machine has enough power to run the pump and drive.",
+              "icon": {
+                "label": "n/min",
+                "image": "lesson-icons/engine-speed.jpeg"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_AIC_EngineHighIdle"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": null
+              }
+            },
+            {
+              "header": "Turn On Solution Pump",
+              "body": "Press the Solution Pump button (swirl/agitator icon) to start circulating the spray solution before you begin spraying.",
+              "icon": {
+                "label": "SOLUTION PUMP",
+                "image": "lesson-icons/solution-pump.jpeg"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_AIC_SolutionPump"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": null
+              }
+            },
+            {
+              "header": "Turn On Sprayer",
+              "body": "Press the yellow Sprayer button (nozzle with spray lines) to turn the sprayer on and begin applying solution to the field.",
+              "icon": {
+                "label": "SPRAYER",
+                "image": "lesson-icons/sprayer.jpeg"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_MHC_MasterSprayOnOff"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": null
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "CommandARM Lessons",
+      "lessons": [
+        {
+          "id": "groups",
+          "name": "One at a Time — Rate, Reset & Idle",
+          "summary": "Three console clusters behave as groups: selecting one member releases its sibling on its own. Learn the rule before it shows up mid-sequence.",
+          "steps": [
+            {
+              "header": "Select Rate 1",
+              "body": "Press Rate 1 on the CommandARM console. One rate light comes on. Rate 1, 2 and 3 are not three independent buttons — they are one group that shares a single light between them.",
+              "icon": {
+                "label": "RATE 1",
+                "glyph": "1"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_AIC_Rate1Control"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": null
+              }
+            },
+            {
+              "header": "Move to Rate 2",
+              "body": "Press Rate 2. Notice that you did not turn Rate 1 off — it went out on its own. That is what makes this a group, and it is the part worth remembering.",
+              "icon": {
+                "label": "RATE 2",
+                "glyph": "2"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_AIC_Rate2Control"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": 1
+              }
+            },
+            {
+              "header": "Move to Rate 3",
+              "body": "Press Rate 3 and watch Rate 2 go dark. During the switch both lights may show at once for a fraction of a second. That is the panel catching up, not two rates being active.",
+              "icon": {
+                "label": "RATE 3",
+                "glyph": "3"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_AIC_Rate3Control"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": 2
+              }
+            },
+            {
+              "header": "Switch to Reset B",
+              "body": "Reset A and Reset B are the second group, this one a pair. Press Reset B and watch Reset A go out by itself.",
+              "icon": {
+                "label": "RESET B",
+                "glyph": "B"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_AIC_ResetB"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": null
+              }
+            },
+            {
+              "header": "Switch Back to Reset A",
+              "body": "Press Reset A. A group always holds exactly one member — there is no way to light both and no way to light neither.",
+              "icon": {
+                "label": "RESET A",
+                "glyph": "A"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_AIC_ResetA"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": 4
+              }
+            },
+            {
+              "header": "Go to High Idle",
+              "body": "High idle and low idle are the third group. Press the rabbit button and the low idle light releases on its own, the same as the other two groups.",
+              "icon": {
+                "label": "n/min",
+                "image": "lesson-icons/engine-speed.jpeg"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_AIC_EngineHighIdle"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": null
+              }
+            },
+            {
+              "header": "Back to Low Idle",
+              "body": "Press the turtle button. The idle pair often does not light up at all — in the reference logs high idle answered 2 presses out of 12. The press still registered — the arm sent it, the machine simply never answered, and a press with no light back is not a press that failed.",
+              "icon": {
+                "label": "LOW IDLE",
+                "glyph": "🐢"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_AIC_EngineLowIdle"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": 6
+              }
+            }
+          ]
+        },
+        {
+          "id": "handle",
+          "name": "The Handle and the Held Controls",
+          "summary": "Calibrate your own hydro handle neutral, then work the controls whose effect keeps running after the button lets go.",
+          "steps": [
+            {
+              "header": "Find Your Neutral, Then Leave It",
+              "body": "Rest your hand on the hydro handle and hold still for a few seconds while the portal measures where your neutral actually sits. Neutral is not a fixed number: two sessions on this same handle rested at 174 and at 238, so it is measured fresh each time and never remembered between sessions. Once it has your resting value, move the handle off neutral to complete this step.",
+              "icon": {
+                "label": "HYDRO HANDLE",
+                "glyph": "↕"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_HydroHandlePosition"
+                ],
+                "condition": "off_baseline",
+                "value": "12",
+                "requires_step": null
+              }
+            },
+            {
+              "header": "Bring It Back to Neutral",
+              "body": "Return the handle to rest. Anything within 12 counts of the neutral just measured is accepted. Passing through neutral is not the same as being in neutral — the arm-to-ready sequence will not accept a fly-by, so settle it.",
+              "icon": {
+                "label": "HYDRO HANDLE",
+                "glyph": "↕"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_HydroHandlePosition"
+                ],
+                "condition": "back_to_baseline",
+                "value": "12",
+                "requires_step": 1
+              }
+            },
+            {
+              "header": "Raise the Center Frame",
+              "body": "Press center boom raise, then watch the frame height rather than the button. It climbs roughly 41 mm every 30 ms across a range of 10 to 748.",
+              "icon": {
+                "label": "CENTER RAISE",
+                "glyph": "▲"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_MHC_CenterBoomRaise"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": null
+              }
+            },
+            {
+              "header": "Lower the Center Frame",
+              "body": "Press center boom lower. Both directions behave the same way: the button starts the movement, it does not measure it. You let go at one height and it settles at another — that gap is the ramp, not a mistake you made.",
+              "icon": {
+                "label": "CENTER LOWER",
+                "glyph": "▼"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_MHC_CenterBoomLower"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": 3
+              }
+            },
+            {
+              "header": "Fold the Booms",
+              "body": "Now fold them: press the reverse pedal, then the round button you just used for frame height. Folding is not a control of its own on this machine — it is the centre boom raise, given a different meaning by the pedal. Without the pedal first, the same button only sets frame height, and this step will keep waiting.",
+              "icon": {
+                "label": "FOLD BOOM",
+                "glyph": "▲"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_MHC_CenterBoomRaise"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": 4,
+                "armed_by": {
+                  "signal": "HID_ReversePedal",
+                  "value": "1"
+                }
+              }
+            },
+            {
+              "header": "Unfold the Booms",
+              "body": "Bring them back out: reverse pedal again, then the round button the other way. The pedal arms one press and one only — it is not a mode you leave switched on, so it is worked afresh for each fold. The wings do report where they are, but only from the machine's side and only now and then, so watch the booms rather than the panel.",
+              "icon": {
+                "label": "UNFOLD BOOM",
+                "glyph": "▼"
+              },
+              "sync": {
+                "signals": [
+                  "PLT_MHC_CenterBoomLower"
+                ],
+                "condition": "equals",
+                "value": "1",
+                "requires_step": 5,
+                "armed_by": {
+                  "signal": "HID_ReversePedal",
+                  "value": "1"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

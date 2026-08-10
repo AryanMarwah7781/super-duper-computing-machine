@@ -47,8 +47,8 @@ cd ui; npm run dev                                   # terminal 1
 ## Tests
 
 ```powershell
-.venv\Scripts\python -m pytest                       # host — 39 tests
-cd ui; npx vitest run                                # ui — 23 tests
+.venv\Scripts\python -m pytest                       # host — 389 tests
+cd ui; npx vitest run                                # ui — 78 tests
 ```
 
 The contract test against the real devkit is skipped unless you point it at one:
@@ -72,10 +72,15 @@ the `image_path` values in `v4/data/chunks.json` before relying on photos.
 ## Screens
 
 ```
-login  ──▶  home  ──┬──▶  chat        working RAG answers + this user's history
-                    ├──▶  lesson      placeholder, navigation wired
-                    └──▶  simulator   placeholder, navigation wired
+login  ──┬──▶  home  ──┬──▶  chat        working RAG answers + this user's history
+         │             ├──▶  lesson      guided procedures, steps ticked by the machine
+         │             └──▶  simulator   how to bring the simulator up, with video
+         └──▶  admin              roster, lesson assignment, everyone's progress
 ```
+
+A brand new operator does not land on the menu. Their first sign-in opens the
+simulator walkthrough, because every tile on the menu assumes a machine that is
+already running.
 
 Back and forward sit in the top bar and behave like a browser: navigating
 somewhere new truncates the forward branch. Signing out clears the whole trail,
@@ -87,14 +92,176 @@ Sign in by typing a name, or pick one of the seeded profiles. There is no
 password — one screen, one operator, and a name is only there to load the right
 history.
 
-`data/profiles.json` holds the roster and each person's questions. It seeds
-three mock users with history on first run (Priya Sharma, Marcus Chen, Dan
-Whitfield); delete the file to reseed. History is capped at 100 turns per
-person.
+`data/assist.db` — one SQLite file — holds the roster, each person's questions,
+their lesson progress and which lessons they have been assigned. It seeds three
+mock users with history on first run (Priya Sharma, Marcus Chen, Dan Whitfield);
+delete the file to reseed. History is capped at 100 turns per person.
 
 Each recorded turn stores the **whole answer**, so re-opening a past question
 re-renders exactly what was said at the time rather than re-asking a corpus that
 may since have changed.
+
+The store used to be `data/profiles.json` plus `data/lesson_progress.json`. Both
+are imported on the first run against a fresh database and then left untouched,
+so upgrading loses nobody's history. Nothing writes to them any more.
+
+```
+users            id, name, created_at, last_seen, onboarded
+history          one row per question, capped at 100 per person
+lesson_state     per user and lesson: assigned, last_opened
+lesson_progress  one row per completed step
+```
+
+Deleting an operator cascades through all four.
+
+## Admin
+
+The **Admin** button on the sign-in screen opens a username and password form —
+`admin` / `admin` by default, checked in Python and overridable with
+`ASSIST_ADMIN_USER` and `ASSIST_ADMIN_PASSWORD`. It is a shared trainer login,
+not a role system: one shop floor, one person who sets up the training. No admin
+call does anything until that sign-in has happened.
+
+From there:
+
+- **Add and remove operators.** Removing takes their history and every completed
+  step with them, so it asks first and says what goes.
+- **Assign lessons.** Every lesson is assigned to everyone by default —
+  a lesson added to the catalog tomorrow must not be invisible to the people
+  already on the roster. Switch one off and it disappears from that operator's
+  lesson list, without touching progress they already made.
+- **Read everyone's progress.** Per lesson, per operator, plus a cohort total.
+  Withheld lessons do not count against anybody: someone held back from five
+  lessons is not "behind".
+- **Refresh progress.** One call re-reads the whole roster. Steps recorded while
+  an operator is working the console land in the same database, so this is how
+  the trainer sees them arrive.
+
+## Getting started, for a new operator
+
+Someone the admin added this morning has never started the simulator, so their
+first sign-in opens the walkthrough rather than the menu: the recording, plus
+the four steps beside it. Marked as seen once they say they are ready, and
+reachable from the menu tile afterwards.
+
+The recording stays where it was recorded and is streamed from there over
+127.0.0.1 — a 220 MB screen capture has no business in the UI bundle or in git.
+Point `ASSIST_STARTER_VIDEO` at a different file to change it.
+
+That file's `moov` atom sits at the end, so the bundle server answers HTTP Range
+requests: without `206` responses a player downloads all 220 MB before it can
+show a frame, and seeking never works.
+
+## Lessons
+
+A lesson is a short procedure on the machine: press this, then that. Nobody is
+asked to confirm they did it — the simulator's Connections App already writes
+every signal that leaves the armrest to its `log.txt`, so the app tails that
+file and the step completes when the machine says it happened. The Connections
+App is only read from: never launched, never written to, never configured.
+
+`data/lessons.json` is the whole content — categories, lessons, step copy, and
+the signal rule behind each step. Console button photos live in
+`ui/public/lesson-icons/`. Add a lesson by editing that one file.
+
+```json
+{"header": "Turn On Solution Pump",
+ "body":   "Press the Solution Pump button…",
+ "icon":   {"label": "SOLUTION PUMP", "image": "lesson-icons/solution-pump.jpeg"},
+ "sync":   {"signals": ["PLT_AIC_SolutionPump"], "condition": "equals",
+            "value": "1", "requires_step": null}}
+```
+
+| Condition | Completes when |
+|---|---|
+| `equals` | the signal reports exactly `value` |
+| `nonzero` | the signal reports anything non-zero it can read as a number |
+| `off_baseline` | the signal leaves a band of ±`value` around this session's resting median |
+| `back_to_baseline` | …and comes back, but only after having left |
+
+`requires_step` orders a lesson: *"move to Rate 2"* means nothing until Rate 1
+was selected.
+
+The hydro handle has no fixed neutral — two sessions on the same physical
+handle rested at 174 and at 238 — so the baseline conditions measure it fresh
+each time and deliberately never persist it.
+
+Steps a lesson cannot see are still steps. The Farming Simulator lessons (drive,
+harvest, fold the booms) send nothing to any log, so those tick off by hand, and
+every step carries a **Mark done** button for a signal the log missed.
+
+Progress lives in `data/assist.db`, per operator, and survives a restart. Set
+`ASSIST_SIM_LOG` to point at a Connections App log somewhere other than the path
+in the catalog.
+
+## Spoken orders, and the listener you may not need
+
+"Fold the boom" acts; "how do I fold the boom" gets answered. The acting half
+ends up in `C:\simulator\voice_commands.json`, which the simulator reads.
+
+How it gets there depends on where the simulator is:
+
+| `ASSIST_TRIGGER_MODE` | What happens |
+|---|---|
+| `auto` (default) | Writes the file directly when `ASSIST_TRIGGER_URL` points at this machine; posts over HTTP when it does not |
+| `local` | Always writes the file |
+| `http` | Always posts, even on one machine |
+
+`window_listener.py` is a Flask server whose entire job is to receive that POST
+and append it to the file. Across a network it is necessary. On one machine it
+is a socket and a second console window standing between a process and a file it
+can already write — so `auto` skips it, and nothing needs to be started by hand.
+
+```powershell
+.\run.ps1 -Local          # simulator on this machine, no listener
+```
+
+The written entry is byte-for-byte what the listener would have produced — same
+keys, same `received_at` stamp, same whole-array rewrite — because the simulator
+side is unchanged and still reading it. `ASSIST_COMMAND_FILE` moves the file.
+
+An address that will not resolve is treated as remote on purpose: writing a
+local file nobody reads and reporting success is worse than a failed POST the
+operator hears about.
+
+## Answers already given
+
+The board takes about six seconds to retrieve and fifteen to a hundred to
+synthesise. A question asked twice should not be searched twice, so answers are
+kept in `data/assist.db` and served from there.
+
+```powershell
+.venv\Scripts\python tools\warm_cache.py            # answer the common ones now
+.venv\Scripts\python tools\warm_cache.py --from-log # what has actually been asked here
+.venv\Scripts\python tools\warm_cache.py --list     # what is cached, with hit counts
+.venv\Scripts\python tools\warm_cache.py --clear    # forget it all
+```
+
+The list lives in `data/common_questions.json`, generated from `QUESTIONS` in
+the repo root — 30 questions hand-graded against the v4 index. Anything asked
+live is cached too, so the list only matters for questions nobody has asked yet.
+
+**Keyed by the pipeline, not just the question.** v3 and v4 answer the same
+question differently, and switching between them is a one-line edit in `.env`;
+an answer remembered from one is never served as though it came from the other.
+
+**What is never kept:** commands, which must act on the machine every time;
+Chris, because a conversation that repeats itself word for word is not one; and
+`oos`, which is the corpus failing to match today and may match tomorrow.
+
+Matching drops case, punctuation and articles, so `How do I fill the solution
+tank?` and `how do i fill solution tank` share an answer. Nothing cleverer:
+`how to start spraying` and `how do i start spraying` stay separate questions,
+because a wrong hit serves the wrong procedure.
+
+A hit is ready in about six milliseconds, which reads as though nothing
+happened. `ASSIST_RECALL_DELAY_S` (default 2.5 s) holds it back to the pace of
+a real answer; set it to 0 to hand answers back as fast as they are found. The
+reported timing is the wait that actually happened — the original search time
+is kept separately as `first_answered_ms`, and never claimed as this turn's.
+
+The client cannot tell when the corpus on the board changes. **Run `--clear`
+after any re-index.**
 
 ## Turn log
 
@@ -136,6 +303,28 @@ theme variables in `ui/src/index.css` are where they belong.
 It runs in the **foreground**. Ctrl-C, or closing the window, stops everything —
 nothing is detached.
 
+### Driving it from another machine
+
+```powershell
+# elevated, once, on the rig
+.	ools\enable-ssh.ps1 -PublicKey "<the other laptop's id_ed25519.pub line>"
+.	ools\enable-ssh.ps1 -Undo          # turn it off again
+```
+
+Starts the OpenSSH server, opens port 22 on every firewall profile (this Wi-Fi
+is classified Public, where a default-profile rule would be enabled and still
+not apply), and installs the key in
+`C:\ProgramData\sshdministrators_authorized_keys` — which is where Windows
+OpenSSH looks for a member of Administrators, rather than `~/.ssh`.
+
+Key auth rather than a password because the rig's account has none, and Windows
+OpenSSH refuses password logins for blank-password accounts.
+
+SSH gives a terminal: start and stop the app, follow `logs/app.log`, run the
+tests. The window itself still opens on the rig's screen — for that you want
+Remote Desktop, which locks the rig's console and redirects its audio, so the
+microphone stops working there while you are connected.
+
 In a second window:
 
 ```powershell
@@ -161,9 +350,76 @@ Run `.\logs.ps1 -Voice` and say it. The log distinguishes the cases:
 Tune without editing code:
 
 ```powershell
-$env:ASSIST_WAKE_THRESHOLD = "0.45"   # default 0.6
+$env:ASSIST_WAKE_THRESHOLD = "0.7"    # default 0.8
 $env:ASSIST_WAKE_FRAMES    = "2"      # default 3
 ```
 
+`run.ps1` clears both unless you pass `-Sensitive`, because an environment
+variable outlives the run that set it: one `-Sensitive` run used to gate every
+later session in that window at 0.45, including ones started without the flag.
+Put them in `.env` to make them stick.
+
+The default is **3 frames above 0.8**, and both halves matter. 0.8 is the line
+the wake models were measured at: "hey chris" holds 3-6 frames above it, and
+the worst impostors -- "the pressure is fine", "christmas is coming" -- hold 2.
+Gate lower and that separation is gone; at 0.6 an impostor holds five or six
+frames and fires. That is an app that wakes on "start spraying" and keeps
+listening for the rest of the session.
+
 `tools\voice_debug.py` shows the score live with sliders. It opens its own
 microphone, so close the main app first — Windows will not share one.
+
+### When the app disappears on switching microphone
+
+No traceback, no error line — the log simply stops and the app is gone. That is
+a native crash, and Windows recorded it even though Python did not:
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Application'} -MaxEvents 20 |
+  Where-Object { $_.Id -eq 1000 } | Select-Object TimeCreated, Message
+```
+
+Selecting a Bluetooth headset produced `libportaudio64bit.dll`, exception
+`0xc0000005`, then `ntdll.dll` `0xc0000374` — an access violation followed by
+heap corruption. PortAudio being used after it was freed.
+
+Three things guard that path now: playback counts as a live stream (an output
+stream was invisible to the guard that keeps PortAudio from being
+re-initialised), opening a stream and re-initialising it are serialised, and a
+device switch reuses the listing the picker already took instead of re-scanning
+mid-switch.
+
+A Bluetooth headset changing profile is still the hardest case, because Windows
+tears the endpoints down underneath the process. The reliable way onto AirPods
+is to make them the default input in Windows and then start the app, rather
+than switching to them from inside it.
+
+### When it starts listening by itself
+
+Symptom: it answers, and immediately wakes again — sometimes cutting its own
+answer off — and the history fills with transcripts nobody said ("Okay.",
+"Next.", half a sentence from the room).
+
+The microphone is hearing the speakers. Playback runs on its own thread, so
+`say()` returns the moment it starts; the wake gate used to reopen right then,
+with the answer still coming out of the speakers a foot away. The gate now stays
+shut for as long as the app is talking, plus a short tail for the room:
+
+```powershell
+$env:ASSIST_ECHO_TAIL_S = "0.6"   # how long after the last word (default 0.6)
+$env:ASSIST_BARGE_IN    = "1"     # keep the gate live while talking, so
+                                  # "hey chris" can interrupt an answer.
+                                  # Headsets and directional microphones only —
+                                  # on open speakers it wakes itself again.
+```
+
+If a wake still fires within a second and a half of the app finishing, the log
+says so outright:
+
+```
+WARNING  audio  wake fired 0.4s after the app stopped talking — if this
+                repeats, the microphone is hearing the speakers
+```
+
+That means the tail is too short for the room, or the speakers are too close to
+the microphone.

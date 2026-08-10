@@ -11,6 +11,8 @@ turns.jsonl
 .env
 
 data/profiles.json
+data/lesson_progress.json
+data/assist.db
 
 data/cma_baseline.txt
 # whisper model cache

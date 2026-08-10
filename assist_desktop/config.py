@@ -35,6 +35,14 @@ DEFAULT_DEVKIT_URL = os.environ.get("ASSIST_DEVKIT_URL",
                                     "http://192.168.94.180:8090")
 
 
+# The screen recording a new operator is shown: how to bring the simulator up.
+# It stays where it was recorded — a 220 MB video does not belong in the UI
+# bundle or in git — and is streamed from there over 127.0.0.1.
+DEFAULT_STARTER_VIDEO = os.environ.get(
+    "ASSIST_STARTER_VIDEO",
+    r"C:\Users\LTTS\Videos\Screen Recordings\Screen Recording 2026-05-11 151653.mp4")
+
+
 @dataclass(frozen=True)
 class Config:
     devkit_url: str = DEFAULT_DEVKIT_URL
@@ -46,6 +54,7 @@ class Config:
     # the UI can cancel at any time.
     timeout_s: float = 300.0
     top_k: int = 5
+    starter_video: str = DEFAULT_STARTER_VIDEO
 
     @classmethod
     def load(cls) -> "Config":
@@ -53,4 +62,6 @@ class Config:
             devkit_url=os.environ.get("ASSIST_DEVKIT_URL", DEFAULT_DEVKIT_URL),
             timeout_s=float(os.environ.get("ASSIST_TIMEOUT_S", "300")),
             top_k=int(os.environ.get("ASSIST_TOP_K", "5")),
+            starter_video=os.environ.get("ASSIST_STARTER_VIDEO",
+                                         DEFAULT_STARTER_VIDEO),
         )

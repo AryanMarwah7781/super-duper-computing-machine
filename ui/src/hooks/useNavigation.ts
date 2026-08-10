@@ -1,6 +1,12 @@
 import { useCallback, useState } from "react"
 
-export type ScreenName = "login" | "home" | "chat" | "lesson" | "simulator"
+export type ScreenName =
+  | "login"
+  | "home"
+  | "chat"
+  | "lesson"
+  | "simulator"
+  | "admin"
 
 /**
  * A browser-style history stack.

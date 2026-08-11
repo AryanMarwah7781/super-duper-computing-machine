@@ -13,7 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import commands, intents, lessons, llm, smalltalk
+from . import commands, intents, kiosk, lessons, llm, smalltalk
 from .client.health import ConnectionState, HealthMonitor
 from .db import Store, now as db_now, slugify
 from .logs import get as get_logger
@@ -123,6 +123,9 @@ class Api:
         # Voice asks originate in the audio thread, which has no idea who is
         # signed in — the UI tells us on sign-in and we remember.
         self._active_user = ""
+        # The last "they signed out" sent to the kiosk, kept only so a test
+        # can wait for it. Nothing in the app awaits this.
+        self._told_kiosk: Optional[object] = None
         # Replaced by __main__ once the windows exist. No-ops until then, so
         # a UI that asks to minimise during startup is ignored rather than
         # raising at somebody mid-demo.
@@ -344,6 +347,47 @@ class Api:
                     "returning": False}
         return {"ok": True, "user": user, "error": None,
                 "returning": returning}
+
+    def external_login(self, name: str, new_user: bool = False) -> dict:
+        """Somebody signed in somewhere else — at the kiosk, or in the login
+        file — and this app has to catch up.
+
+        A repeat of the operator already at the machine is ignored. The kiosk
+        re-sends the identical sign-in behind its "Try again" button, and
+        replaying the welcome over a session in progress is worse than saying
+        nothing at all.
+
+        `new_user` is the kiosk's opinion of its own card roster. It travels
+        with the event for the record, but "Welcome" or "Welcome back" is
+        decided by our own database, which is the thing holding the history
+        that makes the difference mean anything.
+        """
+        name = (name or "").strip()
+        if not name:
+            return {"ok": False, "user": None, "error": "no name",
+                    "returning": False}
+
+        if self._active_user and self._active_user == slugify(name):
+            log.info("%s is already signed in here; ignoring the repeat", name)
+            return {"ok": True, "user": self._users.get_user(self._active_user),
+                    "error": None, "returning": True, "repeat": True}
+
+        result = self.login(name)
+        if not result.get("ok"):
+            log.warning("sign-in named %r, which was refused: %s", name,
+                        result.get("error"))
+            return result
+
+        user = result["user"]
+        log.info("login     %s (%s)", user["name"],
+                 "returning" if result["returning"] else "new")
+        self._emit("external_login", {"user": user,
+                                      "returning": result["returning"],
+                                      "new_user": bool(new_user)})
+        # The other panels find out through this, and so does the voice thread,
+        # which otherwise records a spoken question against nobody.
+        self.set_active_user(user["id"])
+        return result
 
     def history(self, user_id: str) -> dict:
         return {"ok": True, "entries": self._users.history(user_id)}
@@ -789,12 +833,29 @@ class Api:
         window and would otherwise sit black through the whole session,
         waiting for somebody who, as far as it knows, never arrived.
         """
+        previous = self._active_user
         self._active_user = user_id or ""
         log.info("active user: %s", self._active_user or "(signed out)")
         user = self._users.get_user(self._active_user) if self._active_user \
             else None
         self._emit("active_user", {"user": user})
+
+        # Signed out here, so the kiosk goes back to its card rail. Only on the
+        # way to nobody: one operator replacing another is the kiosk's own
+        # doing, and telling it about that would end the session it just began.
+        if previous and not self._active_user:
+            self._told_kiosk = kiosk.report_logout_later(
+                self._name_of(previous))
         return {"ok": True}
+
+    def _name_of(self, user_id: str) -> str:
+        """A name to put in the kiosk's sign-out notice. Empty is allowed —
+        a deleted operator has no profile left to read one from."""
+        try:
+            return (self._users.get_user(user_id) or {}).get("name", "")
+        except Exception:
+            log.exception("could not read the name of %r", user_id)
+            return ""
 
     def _ask_from_voice(self, text: str) -> None:
         """A spoken question takes the identical path to a typed one, then the

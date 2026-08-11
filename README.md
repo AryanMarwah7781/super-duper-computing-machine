@@ -182,7 +182,62 @@ timer ends the welcome regardless, and a click skips it.
 
 ### Who signed in
 
-Sign-in happens somewhere else and that system writes the name to a file:
+Sign-in happens somewhere else. There are two ways it reaches this app, and
+neither has to be present — the app's own sign-in screen always works.
+
+**The kiosk on the SiMa board.** An operator taps their ID card at the board
+and it POSTs the sign-in here; when that session ends here, this app POSTs back
+and the board returns to its card rail.
+
+```
+board 192.168.94.15:8080  --POST /login-->        this laptop :5000
+this laptop               --POST /api/logout-->   board 192.168.94.15:8080
+```
+
+```json
+{ "event": "operator_login", "new_user": false,
+  "user": { "id": "priya-sharma", "name": "Priya Sharma" } }
+```
+
+Three things about that inbound message are load-bearing:
+
+- **The 200 goes out before anything is done about it.** The board waits five
+  seconds and then tells the person in front of it that the handoff failed.
+  Signing somebody in and starting the voice takes longer than that cold, so
+  the answer never waits for the work.
+- **A repeat is not a second person.** The board re-sends the identical payload
+  behind its "Try again" button. The same operator arriving twice is ignored
+  rather than replaying the welcome over a session in progress.
+- **`new_user` is the board's opinion of its own card roster**, not ours.
+  "Welcome" or "Welcome back" is still decided by `data/assist.db`, which is
+  the thing holding the history that makes the difference mean anything.
+
+Both addresses live in `.env` (`ASSIST_KIOSK_URL`, `ASSIST_LOGIN_PORT`) and are
+read per message, so moving the board needs no restart. The address of *this*
+machine lives on the board, in `WELCOME_JD_URL`.
+
+Windows Firewall has to let the board in, and a blocked inbound rule looks
+exactly like a board that never sent anything. This laptop already carries an
+"Edge Listener" rule that opens TCP 5000 to any program; on a machine that does
+not, Windows prompts for Python on the first sign-in — Allow. To check:
+
+```powershell
+Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow |
+  Where-Object { ($_ | Get-NetFirewallPortFilter).LocalPort -contains '5000' }
+```
+
+To prove the pipe before a demo, with both machines up:
+
+```powershell
+python tools/kiosk_check.py                        # both directions, read-only
+python tools/kiosk_check.py --login "Priya Sharma" # a card tap, faked locally
+python tools/kiosk_check.py --logout               # send the kiosk back to its rail
+```
+
+If port 5000 is already held — `window_listener.py` from the old stack is the
+usual culprit — the app still starts, and the log says so in as many words.
+
+**A file, for the older arrangement.** The other system writes the name to:
 
 ```
 ASSIST_LOGIN_FILE=C:/simulator/current_user.json
@@ -190,9 +245,9 @@ ASSIST_LOGIN_FILE=C:/simulator/current_user.json
 ```
 
 `username`, `user`, `operator`, `displayName` and a bare line of text all work
-too. Being generous costs a dictionary lookup; being strict costs an operator
-standing in front of a black screen while somebody reads the source to find out
-which key it wanted.
+too — in the file and in the kiosk's JSON alike. Being generous costs a
+dictionary lookup; being strict costs an operator standing in front of a black
+screen while somebody reads the source to find out which key it wanted.
 
 The file is polled, and a read landing mid-write is expected rather than
 exceptional — there is no lock between the two processes. A half-written

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import webview
 
-from . import commands, game, screens
+from . import commands, game, kiosk, screens
 from .api import Api
 from .bundle_server import BundleServer
 from .config import Config
@@ -145,21 +145,6 @@ def main() -> None:
         log.info("window    %-6s screen %s", role,
                  (index + 1) if index is not None else "?")
 
-    # Somebody signs in elsewhere and that system writes their name to a file.
-    # Until it exists this simply never fires, and the sign-in screen in the UI
-    # remains the way in -- the demo does not wait on another team.
-    def on_external_login(name: str) -> None:
-        result = api.login(name)
-        if not result.get("ok"):
-            log.warning("login file named %r, which was refused: %s",
-                        name, result.get("error"))
-            return
-        user = result["user"]
-        log.info("login     %s (%s)", user["name"],
-                 "returning" if result["returning"] else "new")
-        emit("external_login", {"user": user,
-                                "returning": result["returning"]})
-
     # There is no title bar, so the only way out is the one the UI draws.
     # Both panels move together: minimising one of two fullscreen windows
     # leaves the other covering its monitor, which reads as a half-crashed app.
@@ -201,7 +186,16 @@ def main() -> None:
     if game_index is not None and panels:
         game.place(panels[game_index])
 
-    watcher = LoginWatcher(on_external_login)
+    # Two ways somebody can arrive already signed in, and neither is required.
+    # The kiosk on the board POSTs the sign-in over the network; the older
+    # arrangement writes the name to a file that is polled. Whichever is
+    # absent simply never fires, and the app's own sign-in screen remains the
+    # way in -- the demo does not wait on another machine being ready.
+    listener = kiosk.LoginListener(api.external_login)
+    listener.start()
+    log.info("kiosk     %s (sign-outs are posted there)", kiosk.kiosk_url())
+
+    watcher = LoginWatcher(api.external_login)
     if watcher.path.is_file():
         log.info("login     watching %s", watcher.path)
     else:
@@ -214,6 +208,7 @@ def main() -> None:
         webview.start(api.start)
     finally:
         log.info("shutting down")
+        listener.stop()
         watcher.stop()
         api.stop()
         server.stop()

@@ -164,7 +164,92 @@ export async function login(
     ok: boolean
     user: UserDto | null
     error: string | null
+    returning?: boolean
   }
+}
+
+/**
+ * Say something out loud, through the same voice that reads answers.
+ *
+ * Segments are spoken in order, so a greeting and the question after it are
+ * two entries rather than one string — the pause between them is the point.
+ * Resolves false when there is no voice (a plain browser, or a rig with no
+ * speakers), which callers treat as "carry on silently" rather than an error:
+ * the welcome still has to finish if the audio does not.
+ */
+/**
+ * Chris asks a question and opens the microphone for a few seconds.
+ *
+ * These return as soon as the question has been asked, not when it is
+ * answered — the reply arrives as a `choice_heard` / `lesson_heard` event,
+ * because the UI has a countdown to run in the meantime.
+ *
+ * `listening: false` means the microphone was busy or off. Not an error: the
+ * screen still works by touch, and asking aloud is an addition to the buttons
+ * rather than the only way through.
+ */
+export async function askChoiceAloud(): Promise<boolean> {
+  const r = (await bridge()?.ask_choice()) as { listening?: boolean } | undefined
+  return Boolean(r?.listening)
+}
+
+export async function askWhichLessonAloud(userId: string): Promise<boolean> {
+  const r = (await bridge()?.ask_which_lesson(userId)) as
+    | { listening?: boolean }
+    | undefined
+  return Boolean(r?.listening)
+}
+
+/** They tapped instead of answering. */
+export async function cancelListening(): Promise<void> {
+  await bridge()?.cancel_listening()
+}
+
+/**
+ * Tell Python what is on screen, so "hey chris" can mean something local.
+ *
+ * With the lesson list up, "hey chris, lesson two" should open lesson two
+ * rather than search the manual for it. Clear it on the way out, or the
+ * chatbot inherits a context that is no longer on any screen.
+ */
+export async function setVoiceContext(
+  context: string,
+  userId = "",
+): Promise<void> {
+  await bridge()?.set_voice_context(context, userId)
+}
+
+/**
+ * Ask for a screen, from whichever panel the operator is standing at.
+ *
+ * Broadcast rather than handled locally: the chatbot only exists on the
+ * chatbot's monitor, so tapping its tile on the lesson monitor has to reach
+ * across. Python also brings that panel forward.
+ */
+export async function navigate(screen: string): Promise<void> {
+  await bridge()?.navigate(screen)
+}
+
+/**
+ * Step aside, or stop.
+ *
+ * The windows are frameless — no title bar, no X — so these are the only way
+ * out. Both panels move together: minimising one of two fullscreen windows
+ * leaves the other covering its monitor.
+ */
+export async function minimizeWindow(): Promise<void> {
+  await bridge()?.minimize_window()
+}
+
+export async function closeWindow(): Promise<void> {
+  await bridge()?.close_window()
+}
+
+export async function speak(segments: string[]): Promise<boolean> {
+  const api = bridge()
+  if (!api) return false
+  const result = (await api.speak(segments)) as { ok: boolean }
+  return Boolean(result?.ok)
 }
 
 export type VoiceStatus = {
@@ -236,6 +321,8 @@ export type LessonDto = {
   name: string
   summary: string
   steps: LessonStepDto[]
+  /** Its place in the catalog, shown so it can be said back: "lesson two". */
+  number?: number
 }
 
 export type LessonCategoryDto = { name: string; lessons: LessonDto[] }

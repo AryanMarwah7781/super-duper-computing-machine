@@ -63,6 +63,28 @@ ECHO_TAIL_S = float(os.environ.get("ASSIST_ECHO_TAIL_S", "0.6"))
 BARGE_IN = os.environ.get("ASSIST_BARGE_IN", "0").strip().lower() in ("1", "true", "yes")
 
 
+class _Prompt:
+    """Chris asked something and is waiting for the answer.
+
+    The deadline is absolute rather than a countdown, so the window does not
+    quietly extend every time a frame arrives late. `heard` guarantees the
+    handler runs exactly once: the reply and the timeout race each other by
+    design, and both paths end the prompt.
+    """
+
+    __slots__ = ("name", "deadline", "handler", "heard")
+
+    def __init__(self, name: str, seconds: float,
+                 handler: Callable[[Optional[str]], None]) -> None:
+        self.name = name
+        self.deadline = time.time() + seconds
+        self.handler = handler
+        self.heard = False
+
+    def expired(self, now: Optional[float] = None) -> bool:
+        return (now or time.time()) >= self.deadline
+
+
 class VoiceSession:
     def __init__(self, emit: Emit, ask: AskFn,
                  wake_model_dir: Optional[Path] = None,
@@ -77,6 +99,10 @@ class VoiceSession:
         # doing decides whether the wake gate may listen.
         self._speaker = Speaker(on_state=self._on_speech)
         self._endpointer: Optional[Endpointer] = None
+        # Set while Chris is waiting for an answer to a question he asked.
+        # The transcript goes here instead of to the manual: "lesson two" is
+        # not a question anybody wants searched.
+        self._prompt: Optional[_Prompt] = None
         self._state = VoiceState.OFF
         self._lock = threading.Lock()
         self._unsubscribe: Optional[Callable[[], None]] = None
@@ -232,6 +258,19 @@ class VoiceSession:
             endpointer = self._endpointer
             if endpointer is None:
                 return
+
+            # A prompted window is capped. Left to the endpointer alone, a
+            # room with a running compressor in it never goes quiet enough to
+            # end the utterance, and Chris waits for an answer forever.
+            prompt = self._prompt
+            if prompt is not None and prompt.expired():
+                log.info("prompt %r timed out", prompt.name)
+                self._endpointer = None
+                self._finish_prompt(None)
+                self._rearm_wake()
+                self._set_state(VoiceState.IDLE)
+                return
+
             utterance = endpointer.feed(frame)
             if utterance is not None:
                 self._endpointer = None
@@ -245,8 +284,80 @@ class VoiceSession:
                 # nothing on every later frame.
                 log.info("nothing to transcribe, back to idle")
                 self._endpointer = None
+                # Somebody said nothing, or coughed. Whoever asked the question
+                # still needs telling, or the UI counts down forever.
+                self._finish_prompt(None)
                 self._wake.unmute()
                 self._set_state(VoiceState.IDLE)
+
+    # -- Chris asking, rather than being asked -----------------------------
+    def listen(self, seconds: float, on_reply: Callable[[Optional[str]], None],
+               name: str = "prompt") -> bool:
+        """Open the microphone for `seconds` without waiting for "hey chris".
+
+        Chris has just asked a question, so requiring the wake word to answer
+        it would be absurd — nobody says "hey chris, lesson two" when they
+        were only asked which lesson.
+
+        `on_reply` gets the transcript, or None if the window closed with
+        nothing usable. None is a real outcome and must be handled: it is what
+        happens when somebody walks away mid-question.
+
+        Returns False if the microphone is not running or one is already in
+        flight, rather than queueing. Two overlapping questions is a
+        conversation nobody can follow.
+        """
+        with self._lock:
+            if self._state in (VoiceState.OFF,):
+                log.info("prompt %r ignored: voice is off", name)
+                return False
+            if self._prompt is not None:
+                log.info("prompt %r ignored: %r is still waiting",
+                         name, self._prompt.name)
+                return False
+            if self._state is not VoiceState.IDLE:
+                log.info("prompt %r ignored: busy (%s)", name, self._state.value)
+                return False
+            self._prompt = _Prompt(name, seconds, on_reply)
+            self._endpointer = Endpointer()
+
+        # Muted for the window: Chris's own question is still in the room, and
+        # the gate would otherwise fire on the answer it is already recording.
+        self._wake.mute(seconds=seconds + 5.0)
+        log.info("prompt %r listening for %.1fs", name, seconds)
+        self._emit("prompt", {"name": name, "seconds": seconds})
+        self._set_state(VoiceState.LISTENING)
+        return True
+
+    def _finish_prompt(self, text: Optional[str]) -> bool:
+        """Deliver a reply to whoever is waiting. True if anybody was.
+
+        Guarded, because the timeout and a real reply race each other and the
+        loser must not deliver a second answer to the same question.
+        """
+        with self._lock:
+            prompt = self._prompt
+            if prompt is None or prompt.heard:
+                return False
+            prompt.heard = True
+            self._prompt = None
+
+        log.info("prompt %r -> %r", prompt.name, text)
+        self._emit("prompt_reply", {"name": prompt.name, "text": text or ""})
+        try:
+            prompt.handler(text)
+        except Exception:
+            log.exception("prompt handler for %r failed", prompt.name)
+        return True
+
+    def cancel_prompt(self) -> None:
+        """Stop waiting. The operator answered by tapping instead."""
+        if self._prompt is not None:
+            log.info("prompt %r cancelled", self._prompt.name)
+            self._finish_prompt(None)
+            self._endpointer = None
+            self._rearm_wake()
+            self._set_state(VoiceState.IDLE)
 
     def say(self, segments) -> bool:
         """Read an answer aloud.
@@ -328,8 +439,13 @@ class VoiceSession:
                                   "ended_on": utterance.ended_on})
 
         try:
+            # Answering a question Chris asked, not asking one. "lesson two"
+            # must not be searched for in the manual, and the reply belongs to
+            # whoever is waiting on it.
+            if self._prompt is not None:
+                self._finish_prompt(text if len(text) >= 2 else None)
             # Whisper hallucinates short filler on near-silence; do not ask it.
-            if len(text) >= 3:
+            elif len(text) >= 3:
                 self._set_state(VoiceState.ASKING)
                 try:
                     self._ask(text)

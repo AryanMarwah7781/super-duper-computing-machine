@@ -6,7 +6,7 @@
       "lessons": [
         {
           "id": "spray",
-          "name": "Spray Lesson — R4045",
+          "name": "Spray Lesson",
           "summary": "Self-propelled R4045: walk to it, get in, fill the tank, drive onto the field, unfold the booms and spray.",
           "steps": [
             {
@@ -73,7 +73,8 @@
                 "requires_step": null
               }
             }
-          ]
+          ],
+          "number": 1
         }
       ]
     },
@@ -82,7 +83,7 @@
       "lessons": [
         {
           "id": "groups",
-          "name": "One at a Time — Rate, Reset & Idle",
+          "name": "Getting to Know CommandARM",
           "summary": "Three console clusters behave as groups: selecting one member releases its sibling on its own. Learn the rule before it shows up mid-sequence.",
           "steps": [
             {
@@ -197,11 +198,12 @@
                 "requires_step": 6
               }
             }
-          ]
+          ],
+          "number": 2
         },
         {
           "id": "handle",
-          "name": "The Handle and the Held Controls",
+          "name": "Boom Lesson Plan",
           "summary": "Calibrate your own hydro handle neutral, then work the controls whose effect keeps running after the button lets go.",
           "steps": [
             {
@@ -308,7 +310,8 @@
                 }
               }
             }
-          ]
+          ],
+          "number": 3
         }
       ]
     }

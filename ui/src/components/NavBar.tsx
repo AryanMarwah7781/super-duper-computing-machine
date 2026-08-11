@@ -24,7 +24,12 @@ export function NavBar({
   title: string
 }) {
   return (
-    <header className="flex items-center gap-2 border-b px-4 py-3">
+    // The right-hand end is not free: the window's minimise and close sit
+    // there, floating over everything, because the window is frameless and
+    // has no title bar to put them in. Reserving the corner keeps Sign out
+    // from ending up under the X — they are one misplaced tap apart, and one
+    // of them ends the session for every panel.
+    <header className="flex items-center gap-2 border-b py-3 pl-4 pr-28">
       <Button
         variant="ghost"
         size="icon"

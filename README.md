@@ -47,8 +47,8 @@ cd ui; npm run dev                                   # terminal 1
 ## Tests
 
 ```powershell
-.venv\Scripts\python -m pytest                       # host — 389 tests
-cd ui; npx vitest run                                # ui — 78 tests
+.venv\Scripts\python -m pytest                       # host — 454 tests
+cd ui; npx vitest run                                # ui — 87 tests
 ```
 
 The contract test against the real devkit is skipped unless you point it at one:
@@ -85,6 +85,121 @@ already running.
 Back and forward sit in the top bar and behave like a browser: navigating
 somewhere new truncates the forward branch. Signing out clears the whole trail,
 so the next person cannot walk back into the previous operator's session.
+
+## One app, several monitors
+
+The rig has four panels and the app opens a window on two of them: the chatbot
+on one, the lesson plan on another. The simulator gets a third, which this app
+never draws on and only tidies. The fourth is left alone deliberately — that is
+the desktop the demo is driven from.
+
+Every window loads the same bundle with a different `?role=`, so there is one
+UI, not three. Python decides which panel a role lands on; the UI decides what
+a role shows. Events are broadcast to every window, because a turn that arrives
+while somebody is reading the lesson plan still has to reach the lesson plan.
+
+**Naming a monitor is the whole problem.** pywebview indexes its screens 0..n,
+Windows names the devices DISPLAY1/2/3/5 with no DISPLAY4 at all, and the
+Settings app shows a third set of numbers. None of them agree. So a panel is
+named by where it is:
+
+```powershell
+.venv\Scripts\python tools\identify_screens.py     # prints a token on each panel
+```
+
+```
+ASSIST_SCREEN_CHAT=1920x1080+1920+10
+ASSIST_SCREEN_LESSON=1920x1080-1920+9
+ASSIST_SCREEN_GAME=1920x1080+0+0
+```
+
+Geometry rather than an index, because an index reshuffles the moment a cable
+moves and a layout pinned to indices then opens the lesson plan on top of the
+game. Position identifies a panel and resolution is allowed to differ — a
+monitor that changed mode is still the monitor on the left. A panel that is not
+there at all falls back to a sensible screen and says so in the log rather than
+refusing to start in front of a room.
+
+Two roles resolving onto the same panel collapses to one window rather than
+stacking two fullscreen windows where only one can be seen. One screen is a
+legitimate way to demo this, which is also what `--single` and a plain browser
+get.
+
+```powershell
+.venv\Scripts\python -m assist_desktop --windowed   # ordinary windows, for development
+.venv\Scripts\python -m assist_desktop --single     # everything in one window
+```
+
+`--windowed` exists because a frameless fullscreen window on the wrong monitor
+is genuinely hard to get rid of.
+
+### The simulator's window
+
+Left alone, Farming Simulator stretches across every monitor — it was found
+5776 pixels wide, spanning the lesson plan's panel and the chatbot's with both
+of ours underneath it. So it is moved onto its own panel and sized:
+
+```
+ASSIST_GAME_TITLE=Farming Simulator
+ASSIST_GAME_SIZE=1600x900      # or `max` to fill the panel
+```
+
+Centred rather than pinned to a corner, and never given focus: moving the game
+must not pull the operator away from the screen they are reading. The game is
+never launched by this app, and it not running is the ordinary case rather than
+an error.
+
+**Exclusive fullscreen is the case this cannot fix.** A game that owns the
+display mode either ignores the move or drops its swap chain, and it
+re-minimises itself whenever it loses focus. Run it borderless windowed. The log
+says which happened instead of claiming a move that did not take.
+
+## The welcome
+
+The screens stay black from the first painted frame — `background_color` on the
+window, not CSS, because a window that paints white for two frames while the
+bundle loads is exactly what "keep the screens black" was asking us not to do.
+
+Then Chris rolls in and greets whoever signed in, and the two ways in are
+offered: ask the sprayer something, or carry on with the lesson plan. Both
+panels show the choice at once, so whichever monitor the operator is looking at
+has the answer on it.
+
+**"Welcome" and "Welcome back" are different sentences.** Being recognised is
+the whole point of a returning greeting, and a machine that greets a ten-year
+veteran as a stranger every morning is worse than one that says nothing. Which
+one you get is decided before the profile is written — `login()` creates a
+missing profile, and afterwards everybody looks like a returning operator.
+
+The name is DOM text over a fixed recording rather than part of it. That is the
+reason this is not a rendered video per operator: one recording greets
+everybody, and the greeting is spoken by the voice that already reads answers.
+Only the chat panel speaks, or the greeting arrives twice over.
+
+A video that never fires `ended` — a missing file, a codec the webview will not
+take, a blocked autoplay — cannot strand somebody on a black screen: a failsafe
+timer ends the welcome regardless, and a click skips it.
+
+### Who signed in
+
+Sign-in happens somewhere else and that system writes the name to a file:
+
+```
+ASSIST_LOGIN_FILE=C:/simulator/current_user.json
+{"name": "Priya Sharma"}
+```
+
+`username`, `user`, `operator`, `displayName` and a bare line of text all work
+too. Being generous costs a dictionary lookup; being strict costs an operator
+standing in front of a black screen while somebody reads the source to find out
+which key it wanted.
+
+The file is polled, and a read landing mid-write is expected rather than
+exceptional — there is no lock between the two processes. A half-written
+`{"name": "Priya` is nobody, never a person called `{"name": "Priya`.
+
+Until that file exists the app's own sign-in screen is the way in, so none of
+this waits on another team being ready.
 
 ## Users and history
 

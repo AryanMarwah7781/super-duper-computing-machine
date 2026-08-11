@@ -13,9 +13,9 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import commands, lessons, llm, smalltalk
+from . import commands, intents, lessons, llm, smalltalk
 from .client.health import ConnectionState, HealthMonitor
-from .db import Store, now as db_now
+from .db import Store, now as db_now, slugify
 from .logs import get as get_logger
 from .client.transport import StaleResponse, Transport, TransportError
 from .config import Config
@@ -95,6 +95,16 @@ def _turn_to_dict(turn: Turn) -> dict:
     }
 
 
+# Which panel owns which screen. Only these two are on monitors of their own;
+# everything else is drawn wherever it was asked for.
+_PANEL_FOR = {"chat": "chat", "lesson": "lesson"}
+
+# How long Chris waits for an answer. Long enough to think and speak a short
+# reply, short enough that somebody who has walked away is not held up by a
+# screen counting down at them. Overridable for a slow room.
+PROMPT_SECONDS = float(os.environ.get("ASSIST_PROMPT_SECONDS", "7"))
+
+
 class Api:
     def __init__(self, config: Config, emit: Emit,
                  log_path: Optional[Path] = None,
@@ -113,6 +123,16 @@ class Api:
         # Voice asks originate in the audio thread, which has no idea who is
         # signed in — the UI tells us on sign-in and we remember.
         self._active_user = ""
+        # Replaced by __main__ once the windows exist. No-ops until then, so
+        # a UI that asks to minimise during startup is ignored rather than
+        # raising at somebody mid-demo.
+        self._minimize_windows = lambda: None
+        self._close_windows = lambda: None
+        self._raise_window = lambda _role: None
+        # What is on screen, so "hey chris" can mean something local. Empty
+        # means everything spoken goes to the manual, as it always did.
+        self._voice_context = ""
+        self._voice_context_user = ""
         self._voice = None
         self._catalog = lessons.load_catalog(catalog_path
                                              or lessons.DEFAULT_CATALOG)
@@ -161,6 +181,15 @@ class Api:
             if user_id:
                 self._users.record(user_id, query, "command", source, turn=payload)
             return {"ok": True, "turn": payload, "error": None}
+
+        # The training is ours to answer, not the board's. The manual is a
+        # procedure corpus for an R4045 and has never heard of a lesson plan,
+        # so "what lesson plans are there" retrieved for ten seconds and
+        # answered "I don't know". Chris knows, because Chris is holding the
+        # catalog.
+        taught = self._answer_about_lessons(query, user_id, source)
+        if taught is not None:
+            return taught
 
         # Greetings go to Chris; anything about the machine goes to the
         # manual. The default is the manual -- see smalltalk.py for why that
@@ -304,11 +333,17 @@ class Api:
         return {"ok": True, "users": self._users.list_users()}
 
     def login(self, name: str) -> dict:
+        # Asked before the write, because login() creates the profile when it
+        # is missing -- afterwards everybody looks like a returning operator.
+        # This is the whole difference between "Welcome" and "Welcome back".
+        returning = self._users.get_user(slugify(name or "")) is not None
         try:
             user = self._users.login(name)
         except ValueError as e:
-            return {"ok": False, "user": None, "error": str(e)}
-        return {"ok": True, "user": user, "error": None}
+            return {"ok": False, "user": None, "error": str(e),
+                    "returning": False}
+        return {"ok": True, "user": user, "error": None,
+                "returning": returning}
 
     def history(self, user_id: str) -> dict:
         return {"ok": True, "entries": self._users.history(user_id)}
@@ -336,6 +371,56 @@ class Api:
                 categories.append({**category, "lessons": allowed})
         return {"ok": True, "categories": categories,
                 "progress": self._users.lesson_summary(user_id)}
+
+    def _answer_about_lessons(self, query: str, user_id: str,
+                              source: str) -> Optional[dict]:
+        """Answer a question about the training, or None to carry on.
+
+        Two shapes. "What lessons are there" is answered with the list, read
+        out with its numbers so the numbers can then be said back. "Start the
+        boom lesson plan" opens it.
+
+        A question about the machine that merely mentions a lesson is left
+        alone -- see `looks_like_a_question`. Somebody asking how to fold the
+        boom wants the procedure, not a menu.
+        """
+        if not intents.asks_about_lessons(query):
+            return None
+
+        try:
+            visible = self._visible_lessons(user_id)
+        except Exception:
+            log.exception("could not read the lesson list")
+            return None
+        if not visible:
+            return None
+
+        wanted = intents.lesson(query, visible)
+        if wanted and not intents.looks_like_a_question(query):
+            name = next((l["title"] for l in visible if l["id"] == wanted),
+                        "that lesson")
+            log.info("  lesson request -> %s", wanted)
+            # The lesson list lives on its own panel, so this has to travel.
+            self._emit("lesson_heard", {"text": query, "lesson_id": wanted})
+            self.navigate("lesson")
+            return self._lesson_reply(f"Opening {name}.", query, user_id, source)
+
+        listed = ", ".join(f"{l.get('number') or i + 1}, {l['title']}"
+                           for i, l in enumerate(visible))
+        reply = (f"There {'is' if len(visible) == 1 else 'are'} "
+                 f"{len(visible)} lesson{'' if len(visible) == 1 else 's'}: "
+                 f"{listed}. Say the number or the name to start one.")
+        log.info("  lesson list (%d)", len(visible))
+        self.navigate("lesson")
+        return self._lesson_reply(reply, query, user_id, source)
+
+    def _lesson_reply(self, reply: str, query: str, user_id: str,
+                      source: str) -> dict:
+        payload = _chat_turn(reply)
+        payload["plan"]["reason"] = "lessons"
+        if user_id:
+            self._users.record(user_id, query, "chat", source, turn=payload)
+        return {"ok": True, "turn": payload, "error": None}
 
     def open_lesson(self, user_id: str, lesson_id: str) -> dict:
         """Open a lesson and, where its steps are wired to signals, start
@@ -528,16 +613,197 @@ class Api:
         return {"ok": True, "assigned": sorted(
             set(every) - self._users.assignments(user_id))}
 
+    # -- Chris asking a question -------------------------------------------
+    def ask_choice(self, seconds: float = PROMPT_SECONDS) -> dict:
+        """Say the two options aloud, then listen for which one.
+
+        Fire and forget: the answer arrives as a `choice_heard` event rather
+        than as a return value, because the UI has a countdown to run in the
+        meantime and cannot sit on a promise for seven seconds.
+        """
+        def heard(text):
+            picked = intents.choice(text or "")
+            log.info("choice heard %r -> %s", text, picked or "unclear")
+            self._emit("choice_heard", {"text": text or "",
+                                        "choice": picked})
+            if picked in ("chat", "lesson"):
+                self.navigate(picked)
+
+        return self._listen("choice", seconds, heard)
+
+    def ask_which_lesson(self, user_id: str = "",
+                         seconds: float = PROMPT_SECONDS) -> dict:
+        """"Which lesson?" -- answered by number or by name.
+
+        The numbering is the one on the screen. An operator can only say "the
+        third one" about the list in front of them, so the catalog is read in
+        display order and filtered to what they were actually assigned.
+        """
+        try:
+            visible = self._visible_lessons(user_id)
+        except Exception:
+            log.exception("could not read the lesson list")
+            visible = []
+
+        def heard(text):
+            picked = intents.lesson(text or "", visible)
+            log.info("lesson heard %r -> %s", text, picked or "unclear")
+            self._emit("lesson_heard", {"text": text or "",
+                                        "lesson_id": picked})
+
+        return self._listen("lesson", seconds, heard)
+
+    def _visible_lessons(self, user_id: str) -> list[dict]:
+        """The lessons this operator can see, in the order they are shown.
+
+        `name` is the field the catalog actually uses; reading `title` here
+        handed the matcher a list of empty strings, so a lesson could only
+        ever be picked by number and never by name.
+        """
+        catalog = self.lessons(user_id)
+        out: list[dict] = []
+        for category in catalog.get("categories", []):
+            for item in category.get("lessons", []):
+                out.append({"id": item.get("id"),
+                            "title": item.get("name") or item.get("title", ""),
+                            "number": item.get("number")})
+        return out
+
+    def _listen(self, name: str, seconds: float, handler) -> dict:
+        try:
+            session = self._voice_session()
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        started = session.listen(seconds, handler, name=name)
+        # Not an error. The microphone may be busy, or off entirely, and the
+        # screen still works by touch -- the point of asking aloud is that it
+        # is an addition to the buttons, never the only way through.
+        return {"ok": True, "listening": bool(started)}
+
+    def cancel_listening(self) -> dict:
+        """They tapped instead of answering."""
+        if self._voice is not None:
+            self._voice.cancel_prompt()
+        return {"ok": True}
+
+    def set_voice_context(self, context: str = "", user_id: str = "") -> dict:
+        """What is on screen, so "hey chris" can mean something local.
+
+        The seven second window closes, and the operator still wants lesson
+        two. Saying "hey chris, lesson two" has to work — but the wake word
+        feeds the manual, and "lesson two" is not in the manual.
+
+        So while the lesson list is up, a spoken line is offered to the list
+        first. Only what the list cannot use goes on to the board.
+        """
+        self._voice_context = context or ""
+        self._voice_context_user = user_id or ""
+        return {"ok": True}
+
+    def _handled_by_context(self, text: str) -> bool:
+        """True if the screen took this line, so the manual should not see it."""
+        if self._voice_context != "lesson":
+            return False
+        # "how do i fold the boom" is a question for the manual, even standing
+        # in front of a lesson called Fold the Boom. Only the opening words
+        # tell those two apart.
+        if intents.looks_like_a_question(text):
+            return False
+        try:
+            visible = self._visible_lessons(self._voice_context_user)
+        except Exception:
+            log.exception("could not read the lesson list")
+            return False
+        picked = intents.lesson(text, visible)
+        if not picked:
+            return False
+        log.info("context lesson %r -> %s", text, picked)
+        self._emit("lesson_heard", {"text": text, "lesson_id": picked})
+        return True
+
+    # -- moving between panels ---------------------------------------------
+    def navigate(self, screen: str) -> dict:
+        """Ask for a screen, from any panel.
+
+        A tile is tapped on whichever monitor the operator is standing at, but
+        the chatbot only exists on the chatbot's panel. So the request is
+        broadcast and the panel that owns that screen answers it; the others
+        leave themselves alone. Without this, tapping "chatbot" on the lesson
+        monitor either does nothing or draws a second chatbot in the wrong
+        place.
+        """
+        self._emit("navigate", {"screen": screen})
+        self._raise_role(_PANEL_FOR.get(screen, ""))
+        return {"ok": True}
+
+    def _raise_role(self, role: str) -> None:
+        """Bring a panel forward, if something else is covering it."""
+        if not role:
+            return
+        try:
+            self._raise_window(role)
+        except Exception:
+            log.exception("could not raise the %s panel", role)
+
+    # -- the windows themselves --------------------------------------------
+    def set_window_controls(self, minimize, close, raise_window=None) -> None:
+        """Hand the UI a way to minimise, close, and bring a panel forward.
+
+        The windows are frameless, so there is no title bar and no X. Without
+        this there is no way out of a fullscreen window that covers the panel
+        it is on — which is a demo nobody can end.
+        """
+        self._minimize_windows = minimize
+        self._close_windows = close
+        if raise_window is not None:
+            self._raise_window = raise_window
+
+    def minimize_window(self) -> dict:
+        """Get out of the way without ending the session.
+
+        Every panel goes down together. Minimising one of two fullscreen
+        windows leaves the other covering its monitor, which looks like a
+        half-crashed app rather than an app that stepped aside.
+        """
+        try:
+            self._minimize_windows()
+            return {"ok": True}
+        except Exception as e:
+            log.exception("could not minimise")
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    def close_window(self) -> dict:
+        try:
+            self._close_windows()
+            return {"ok": True}
+        except Exception as e:
+            log.exception("could not close")
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
     # -- voice -------------------------------------------------------------
     def set_active_user(self, user_id: str) -> dict:
-        """Who a spoken question belongs to. Called on sign-in and sign-out."""
+        """Who a spoken question belongs to. Called on sign-in and sign-out.
+
+        Also the moment the other panels find out. Sign-in happens in one
+        window; the lesson plan is on a different monitor in a different
+        window and would otherwise sit black through the whole session,
+        waiting for somebody who, as far as it knows, never arrived.
+        """
         self._active_user = user_id or ""
         log.info("active user: %s", self._active_user or "(signed out)")
+        user = self._users.get_user(self._active_user) if self._active_user \
+            else None
+        self._emit("active_user", {"user": user})
         return {"ok": True}
 
     def _ask_from_voice(self, text: str) -> None:
         """A spoken question takes the identical path to a typed one, then the
         answer is pushed as an event — nobody is awaiting a promise for it."""
+        # The screen gets first refusal. Standing at the lesson list, "hey
+        # chris, lesson two" is a lesson, and searching the manual for it
+        # would spend ten seconds arriving at "I don't know".
+        if self._handled_by_context(text):
+            return
         result = self.ask(text, source="voice", user_id=self._active_user)
         self._emit("answer", {"query": text, **result})
         # Asked by voice, answered by voice.

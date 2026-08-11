@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { AdminScreen } from "@/components/AdminScreen"
+import { BlankScreen } from "@/components/BlankScreen"
 import { ChatScreen } from "@/components/ChatScreen"
 import { ChoiceScreen, type Choice } from "@/components/ChoiceScreen"
 import { HomeScreen } from "@/components/HomeScreen"
@@ -39,11 +40,19 @@ const TITLES: Record<ScreenName, string> = {
 }
 
 /**
- * The opening runs in three beats before the app proper: Chris arrives and
- * greets whoever signed in, the two choices are offered, then the panel
- * settles into its job. `idle` is the black screen before anybody has.
+ * Nothing happens on these panels until somebody signs in at the kiosk.
+ *
+ * `idle` is that: a black screen, on every panel, for as long as the machine
+ * is unattended. A name arriving from the board is what starts everything —
+ * the app boots, Chris greets them, the two ways in are offered, and only then
+ * does the panel settle into its job. Sign-out returns every panel to `idle`.
+ *
+ * The boot sequence deliberately runs after the sign-in rather than before it.
+ * A rig that has been powered up since eight o'clock has nothing left to load
+ * by the time an operator arrives, but the operator has just tapped a card and
+ * is owed something happening on the screen in front of them.
  */
-type Phase = "idle" | "welcome" | "choice" | "app"
+type Phase = "idle" | "boot" | "welcome" | "choice" | "app"
 
 export default function App() {
   const {
@@ -64,8 +73,10 @@ export default function App() {
   const [returning, setReturning] = useState(false)
   const [phase, setPhase] = useState<Phase>("idle")
   const [entries, setEntries] = useState<HistoryEntry[]>([])
-  const [booting, setBooting] = useState(true)
   const [admin, setAdmin] = useState(false)
+  // The kiosk is unreachable and somebody asked for this app's own sign-in
+  // screen instead — three taps on the black panel. See BlankScreen.
+  const [fallback, setFallback] = useState(false)
 
   const refreshHistory = useCallback(async (userId: string) => {
     setEntries(await history(userId))
@@ -75,11 +86,13 @@ export default function App() {
     if (user) void refreshHistory(user.id)
   }, [user, refreshHistory, messages.length])
 
-  /** Shared by both ways in: the sign-in screen, and the login file. */
+  /** Shared by every way in: the kiosk, the login file, and the fallback
+   * sign-in screen. The boot sequence plays first — this is the moment the
+   * panels come alive, and it is the only one the operator sees. */
   const begin = useCallback((next: UserDto, isReturning: boolean) => {
     setUser(next)
     setReturning(isReturning)
-    setPhase("welcome")
+    setPhase("boot")
   }, [])
 
   /** Drop this panel's session without announcing it again.
@@ -93,6 +106,9 @@ export default function App() {
     setUser(null)
     setReturning(false)
     setPhase("idle")
+    // Back to a switched-off panel, fallback and all: the next person arrives
+    // through the kiosk like everybody else.
+    setFallback(false)
     setEntries([])
     clearConversation()
     nav.reset("login")
@@ -104,13 +120,19 @@ export default function App() {
   useEffect(() => {
     const offExternal = onEvent("external_login", (data) => {
       const d = data as { user: UserDto; returning: boolean }
-      if (d?.user) begin(d.user, Boolean(d.returning))
+      if (!d?.user) return
+      // Signed in at the kiosk rather than on this screen, so nothing here
+      // has opened the microphone for them yet. Only the panel that owns the
+      // voice asks: two windows racing the model loads is how the app used to
+      // die on start-up.
+      if (isVoiceOwner(role)) void startVoice()
+      begin(d.user, Boolean(d.returning))
     })
     const offActive = onEvent("active_user", (data) => {
       const d = data as { user: UserDto | null }
       if (d?.user) {
         setUser((prev) => (prev?.id === d.user!.id ? prev : d.user))
-        setPhase((prev) => (prev === "idle" ? "welcome" : prev))
+        setPhase((prev) => (prev === "idle" ? "boot" : prev))
       } else {
         // Signed out. One operator walking away has to clear every monitor —
         // the next person must not find the last one's history still open on
@@ -145,9 +167,7 @@ export default function App() {
   }
 
   /** The welcome has played. Offer the two ways in. */
-  function afterWelcome() {
-    setPhase("choice")
-  }
+  const afterWelcome = useCallback(() => setPhase("choice"), [])
 
   function pick(choice: Choice) {
     // Somebody the admin added this morning has never started the simulator.
@@ -197,24 +217,25 @@ export default function App() {
       ? lastAnswer.turn?.timing?.total_ms
       : undefined
 
-  if (booting) {
+  // Nobody has signed in, so the panels are black — the machine is meant to
+  // look switched off until a card is tapped at the kiosk. The controls stay
+  // on even here: a black panel with no way out of it is the single worst
+  // thing this app could put on a monitor.
+  if (phase === "idle" && !fallback) {
     return (
-      <div className="h-screen bg-background text-foreground">
+      <div className="h-screen w-screen bg-black">
         <WindowControls />
-        <SplashScreen onDone={() => setBooting(false)} />
+        <BlankScreen onReveal={() => setFallback(true)} />
       </div>
     )
   }
 
-  // Before anybody has signed in, a secondary panel is simply black. The
-  // window that owns sign-in shows the sign-in screen; the others must not
-  // show a second one, or there are two ways in and they can disagree.
-  // The controls go on even here — a black panel with no way out of it is
-  // the single worst thing this app could put on a monitor.
-  if (phase === "idle" && !showsChat(role)) {
+  // The card has been tapped and everything comes up at once.
+  if (phase === "boot") {
     return (
-      <div className="h-screen w-screen bg-black">
+      <div className="h-screen bg-background text-foreground">
         <WindowControls />
+        <SplashScreen onDone={() => setPhase("welcome")} />
       </div>
     )
   }

@@ -160,6 +160,23 @@ The screens stay black from the first painted frame — `background_color` on th
 window, not CSS, because a window that paints white for two frames while the
 bundle loads is exactly what "keep the screens black" was asking us not to do.
 
+And they stay black. Starting the app puts two switched-off panels on their
+monitors: no boot sequence, no sign-in form, nothing to touch. **A name
+arriving from the kiosk is what starts everything** — the boot sequence plays,
+Chris greets them, the choice is offered. Signing out returns both panels to
+black for the next person.
+
+The boot sequence runs *after* the sign-in rather than before it, deliberately.
+A rig that has been powered up since eight in the morning has nothing left to
+load by the time an operator arrives, and the operator has just tapped a card
+and is owed something happening on the screen in front of them.
+
+Which leaves the morning the board is unplugged. **Three taps on a black panel**
+brings this app's own sign-in screen up, and with it the Admin button — the
+only route to the trainer's screen once the kiosk owns the front door. Three
+rather than one, because the first instinct in front of a black screen is to
+touch it, and one tap would put the fallback in front of every operator.
+
 Then Chris rolls in and greets whoever signed in, and the two ways in are
 offered: ask the sprayer something, or carry on with the lesson plan. Both
 panels show the choice at once, so whichever monitor the operator is looking at

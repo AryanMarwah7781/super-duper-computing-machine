@@ -34,6 +34,14 @@ export function WelcomeScreen({
   const greeting = returning ? "Welcome back" : "Welcome"
   const first = (name || "").trim().split(/\s+/)[0] || "there"
 
+  // Held in a ref rather than listed as a dependency. `onDone` is redefined on
+  // every render of App, and App re-renders several times a second while the
+  // microphone reports its level — so an effect that depended on it ran again
+  // on every frame of audio: the greeting was spoken forty times over, and the
+  // failsafe timer was cancelled and restarted so often it could never fire.
+  const latest = useRef(onDone)
+  latest.current = onDone
+
   useEffect(() => {
     // Guarded because several things can end the welcome — the video ending,
     // the failsafe timer, a click — and the operator must not be walked
@@ -41,7 +49,7 @@ export function WelcomeScreen({
     function finish() {
       if (done.current) return
       done.current = true
-      onDone()
+      latest.current()
     }
 
     const appear = window.setTimeout(() => setShown(true), 350)
@@ -78,7 +86,10 @@ export function WelcomeScreen({
       window.clearTimeout(failsafe)
       el?.removeEventListener("ended", finish)
     }
-  }, [greeting, first, speaks, onDone])
+    // Once per mount, deliberately. Nobody's name or greeting changes while
+    // they are being greeted, and re-running this is what spoke over itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div

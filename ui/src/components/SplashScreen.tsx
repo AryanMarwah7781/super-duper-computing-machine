@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import SplitFlapText from "./SplitFlapText"
 import { LttsLogo } from "./Brand"
 import { whenBridgeReady } from "@/lib/bridge"
@@ -31,6 +31,13 @@ function sleep(ms: number) {
 export function SplashScreen({ onDone }: { onDone: () => void }) {
   const [stage, setStage] = useState(0)
 
+  // In a ref, not a dependency. The boot now runs after somebody signs in,
+  // which is also when the microphone opens — and App re-renders on every
+  // level report. An effect keyed on `onDone` would tear this sequence down
+  // and start it again four times a second, and the boot would never end.
+  const latest = useRef(onDone)
+  latest.current = onDone
+
   useEffect(() => {
     let cancelled = false
 
@@ -55,14 +62,16 @@ export function SplashScreen({ onDone }: { onDone: () => void }) {
 
       setStage(3)
       await sleep(700)
-      if (!cancelled) onDone()
+      if (!cancelled) latest.current()
     }
 
     void boot()
     return () => {
       cancelled = true
     }
-  }, [onDone])
+    // Once per mount. See the ref above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-10 bg-background px-6">
